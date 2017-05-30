@@ -1,4 +1,5 @@
 /chromium-*
+/src/chromiumcontent
 /src/out-ia32
 /src/out-x64
 /src/out-arm
