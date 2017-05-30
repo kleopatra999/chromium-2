@@ -24,6 +24,8 @@ def main():
 
   rm_rf(SRC_DIR)
   download_source_tarball(args.version)
+  remove_git_ignore_files()
+  commit_files(args.version)
 
 
 def parse_args():
@@ -48,6 +50,22 @@ def rm_f(path):
       raise
 
 
+def remove_git_ignore_files():
+  for root, dirs, files in os.walk(SRC_DIR):
+    for name in files:
+      if name == '.gitignore':
+        rm_f(os.path.join(root, name))
+
+
+def commit_files(version):
+  subprocess.check_call(['git', 'add', 'src'])
+  subprocess.check_call(['git', 'commit',
+                         '--author',
+                         'Electron Bot <kevin+electronbot@github.com>',
+                         '--message',
+                         'Import v{0}'.format(version)])
+
+
 def download_source_tarball(version):
   rm_rf(SRC_DIR)
 
@@ -60,7 +78,7 @@ def download_source_tarball(version):
       while True:
         chunk = u.read(1024*1024)
         if not len(chunk):
-            break
+          break
         sys.stderr.write('.')
         sys.stderr.flush()
         t.write(chunk)
