@@ -6,3 +6,4 @@
 /src/out-arm64
 /src/third_party/llvm-build
 /src/third_party/node
+*.pyc
