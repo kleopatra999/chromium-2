@@ -1,0 +1,97 @@
+#!/usr/bin/env python
+
+import argparse
+import contextlib
+import errno
+import os
+import shutil
+import subprocess
+import sys
+import tarfile
+import urllib2
+
+
+SOURCE_ROOT = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+SRC_DIR = os.path.join(SOURCE_ROOT, 'src')
+VENDOR_DIR = os.path.join(SOURCE_ROOT, 'vendor')
+
+TARBALL_REPO = 'zcbenz/chromium-source-tarball'
+TARBALL_URL = 'https://github.com/{0}/releases/download/{1}/chromium-{1}.tar.xz'
+
+
+def main():
+  args = parse_args()
+
+  rm_rf(SRC_DIR)
+  download_source_tarball(args.version)
+
+
+def parse_args():
+  parser = argparse.ArgumentParser(description='Download new chrome source tarball')
+  parser.add_argument('-v', '--version', help='Version of Chrome to download')
+  return parser.parse_args()
+
+
+def rm_rf(path):
+  try:
+    shutil.rmtree(path)
+  except OSError as e:
+    if e.errno != errno.ENOENT:
+      raise
+
+
+def rm_f(path):
+  try:
+    os.remove(path)
+  except OSError as e:
+    if e.errno != errno.ENOENT:
+      raise
+
+
+def download_source_tarball(version):
+  rm_rf(SRC_DIR)
+
+  dir_name = 'chromium-{0}'.format(version)
+  tar_name = dir_name + '.tar'
+  xz_name = tar_name + '.xz'
+  url = TARBALL_URL.format(TARBALL_REPO, version)
+  with open(xz_name, 'wb+') as t:
+    with contextlib.closing(urllib2.urlopen(url)) as u:
+      while True:
+        chunk = u.read(1024*1024)
+        if not len(chunk):
+            break
+        sys.stderr.write('.')
+        sys.stderr.flush()
+        t.write(chunk)
+
+  sys.stderr.write('\nExtracting...\n')
+  sys.stderr.flush()
+
+  rm_f(tar_name)
+  tar_xf(xz_name)
+  os.rename(dir_name, SRC_DIR)
+  os.remove(xz_name)
+
+
+def tar_xf(filename):
+  subprocess.call([xz(), '-dqk', filename])
+  tar_name = filename[:-3]
+  tar = tarfile.open(tar_name)
+  tar.extractall()
+  tar.close()
+  os.remove(tar_name)
+
+
+def xz():
+  if sys.platform in ['win32', 'cygwin']:
+    return os.path.join(VENDOR_DIR, 'xz', 'win32', 'xz.exe')
+  elif sys.platform == 'darwin':
+    return os.path.join(VENDOR_DIR, 'xz', 'darwin', 'bin', 'xz')
+  else:
+    return 'xz'
+
+
+if __name__ == '__main__':
+  import sys
+  sys.exit(main())
