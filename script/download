@@ -25,6 +25,7 @@ def main():
   rm_rf(SRC_DIR)
   download_source_tarball(args.version)
   remove_git_ignore_files()
+  write_version_file(args.version)
   commit_files(args.version)
 
 
@@ -50,6 +51,12 @@ def rm_f(path):
       raise
 
 
+def write_version_file(version):
+  version_file = open(os.path.join(SOURCE_ROOT, 'VERSION'), 'w')
+  version_file.write(version)
+  version_file.close()
+
+
 def remove_git_ignore_files():
   for root, dirs, files in os.walk(SRC_DIR):
     for name in files:
@@ -58,12 +65,12 @@ def remove_git_ignore_files():
 
 
 def commit_files(version):
-  subprocess.check_call(['git', 'add', 'src'])
+  subprocess.check_call(['git', 'add', 'src', 'VERSION'], cwd=SOURCE_ROOT)
   subprocess.check_call(['git', 'commit',
                          '--author',
                          'Electron Bot <kevin+electronbot@github.com>',
                          '--message',
-                         'Import v{0}'.format(version)])
+                         'Import v{0}'.format(version)], cwd=SOURCE_ROOT)
 
 
 def download_source_tarball(version):
