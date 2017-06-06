@@ -39,6 +39,8 @@ static std::mutex global_lock;
 // The following is for logging error messages:
 static std::unordered_map<void *, layer_data *> layer_data_map;
 
+static uint32_t loader_layer_if_version = CURRENT_LOADER_LAYER_INTERFACE_VERSION;
+
 static const VkExtensionProperties instance_extensions[] = {{VK_EXT_DEBUG_REPORT_EXTENSION_NAME, VK_EXT_DEBUG_REPORT_SPEC_VERSION}};
 
 static const VkLayerProperties swapchain_layer = {
@@ -46,8 +48,8 @@ static const VkLayerProperties swapchain_layer = {
 };
 
 static void checkDeviceRegisterExtensions(VkPhysicalDevice physicalDevice, const VkDeviceCreateInfo *pCreateInfo, VkDevice device) {
-    layer_data *my_device_data = get_my_data_ptr(get_dispatch_key(device), layer_data_map);
-    layer_data *my_instance_data = get_my_data_ptr(get_dispatch_key(physicalDevice), layer_data_map);
+    layer_data *my_device_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
+    layer_data *my_instance_data = GetLayerDataPtr(get_dispatch_key(physicalDevice), layer_data_map);
 
     SwpPhysicalDevice *pPhysicalDevice = NULL;
     {
@@ -69,7 +71,7 @@ static void checkDeviceRegisterExtensions(VkPhysicalDevice physicalDevice, const
 
 static void checkInstanceRegisterExtensions(const VkInstanceCreateInfo *pCreateInfo, VkInstance instance) {
     uint32_t i;
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(instance), layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(get_dispatch_key(instance), layer_data_map);
 
     // Remember this instance, and whether the VK_KHR_surface extension
     // was enabled for it:
@@ -86,7 +88,6 @@ static void checkInstanceRegisterExtensions(const VkInstanceCreateInfo *pCreateI
     // vkEnumerateInstanceExtensionProperties(), since the loader handles that.
     for (i = 0; i < pCreateInfo->enabledExtensionCount; i++) {
         if (strcmp(pCreateInfo->ppEnabledExtensionNames[i], VK_KHR_DISPLAY_EXTENSION_NAME) == 0) {
-
             my_data->instanceMap[instance].displayExtensionEnabled = true;
         }
     }
@@ -94,7 +95,6 @@ static void checkInstanceRegisterExtensions(const VkInstanceCreateInfo *pCreateI
 
 #include "vk_dispatch_table_helper.h"
 static void init_swapchain(layer_data *my_data, const VkAllocationCallbacks *pAllocator) {
-
     layer_debug_actions(my_data->report_data, my_data->logging_callback, pAllocator, "lunarg_swapchain");
 }
 
@@ -157,11 +157,10 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateInstance(const VkInstanceCreateInfo *pCreat
         return result;
     }
 
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(*pInstance), layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(get_dispatch_key(*pInstance), layer_data_map);
     my_data->instance = *pInstance;
     my_data->instance_dispatch_table = new VkLayerInstanceDispatchTable;
     layer_init_instance_dispatch_table(*pInstance, my_data->instance_dispatch_table, fpGetInstanceProcAddr);
-
     my_data->report_data = debug_report_create_instance(my_data->instance_dispatch_table, *pInstance,
                                                         pCreateInfo->enabledExtensionCount, pCreateInfo->ppEnabledExtensionNames);
 
@@ -174,7 +173,7 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateInstance(const VkInstanceCreateInfo *pCreat
 
 VKAPI_ATTR void VKAPI_CALL DestroyInstance(VkInstance instance, const VkAllocationCallbacks *pAllocator) {
     dispatch_key key = get_dispatch_key(instance);
-    layer_data *my_data = get_my_data_ptr(key, layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(key, layer_data_map);
     SwpInstance *pInstance = NULL;
     {
         auto it = my_data->instanceMap.find(instance);
@@ -200,7 +199,6 @@ VKAPI_ATTR void VKAPI_CALL DestroyInstance(VkInstance instance, const VkAllocati
         // Delete all of the SwpPhysicalDevice's, SwpSurface's, and the
         // SwpInstance associated with this instance:
         for (auto it = pInstance->physicalDevices.begin(); it != pInstance->physicalDevices.end(); it++) {
-
             // Free memory that was allocated for/by this SwpPhysicalDevice:
             SwpPhysicalDevice *pPhysicalDevice = it->second;
             if (pPhysicalDevice) {
@@ -218,7 +216,6 @@ VKAPI_ATTR void VKAPI_CALL DestroyInstance(VkInstance instance, const VkAllocati
             my_data->physicalDeviceMap.erase(it->second->physicalDevice);
         }
         for (auto it = pInstance->surfaces.begin(); it != pInstance->surfaces.end(); it++) {
-
             // Free memory that was allocated for/by this SwpPhysicalDevice:
             SwpSurface *pSurface = it->second;
             if (pSurface) {
@@ -252,31 +249,46 @@ VKAPI_ATTR void VKAPI_CALL DestroyInstance(VkInstance instance, const VkAllocati
     layer_data_map.erase(key);
 }
 
-VKAPI_ATTR void VKAPI_CALL GetPhysicalDeviceQueueFamilyProperties(VkPhysicalDevice physicalDevice,
-                                                                  uint32_t *pQueueFamilyPropertyCount,
-                                                                  VkQueueFamilyProperties *pQueueFamilyProperties) {
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(physicalDevice), layer_data_map);
-
-    // Call down the call chain:
-    my_data->instance_dispatch_table->GetPhysicalDeviceQueueFamilyProperties(physicalDevice, pQueueFamilyPropertyCount,
-                                                                             pQueueFamilyProperties);
-
+static void PostCallRecordGetPhysicalDeviceQueueFamilyProperties(layer_data *dev_data, VkPhysicalDevice physical_device,
+                                                                 uint32_t *qfp_count, bool qfp_is_null) {
     // Record the result of this query:
     std::lock_guard<std::mutex> lock(global_lock);
-    SwpPhysicalDevice *pPhysicalDevice = NULL;
+    SwpPhysicalDevice *phy_data = NULL;
     {
-        auto it = my_data->physicalDeviceMap.find(physicalDevice);
-        pPhysicalDevice = (it == my_data->physicalDeviceMap.end()) ? NULL : &it->second;
+        auto it = dev_data->physicalDeviceMap.find(physical_device);
+        phy_data = (it == dev_data->physicalDeviceMap.end()) ? NULL : &it->second;
     }
     // Note: for poorly-written applications (e.g. that don't call this command
     // twice, the first time with pQueueFamilyProperties set to NULL, and the
     // second time with a non-NULL pQueueFamilyProperties and with the same
     // count as returned the first time), record the count when
-    // pQueueFamilyProperties is non-NULL:
-    if (pPhysicalDevice && pQueueFamilyPropertyCount && pQueueFamilyProperties) {
-        pPhysicalDevice->gotQueueFamilyPropertyCount = true;
-        pPhysicalDevice->numOfQueueFamilies = *pQueueFamilyPropertyCount;
+    // queue family property data pointer is non-NULL:
+    if (phy_data && qfp_count && !qfp_is_null) {
+        phy_data->gotQueueFamilyPropertyCount = true;
+        phy_data->numOfQueueFamilies = *qfp_count;
     }
+}
+
+VKAPI_ATTR void VKAPI_CALL GetPhysicalDeviceQueueFamilyProperties(VkPhysicalDevice physicalDevice,
+                                                                  uint32_t *pQueueFamilyPropertyCount,
+                                                                  VkQueueFamilyProperties *pQueueFamilyProperties) {
+    layer_data *dev_data = GetLayerDataPtr(get_dispatch_key(physicalDevice), layer_data_map);
+
+    // Call down the call chain:
+    dev_data->instance_dispatch_table->GetPhysicalDeviceQueueFamilyProperties(physicalDevice, pQueueFamilyPropertyCount,
+                                                                              pQueueFamilyProperties);
+    PostCallRecordGetPhysicalDeviceQueueFamilyProperties(dev_data, physicalDevice, pQueueFamilyPropertyCount,
+                                                         pQueueFamilyProperties == NULL);
+}
+
+VKAPI_ATTR void VKAPI_CALL GetPhysicalDeviceQueueFamilyProperties2KHR(VkPhysicalDevice physicalDevice,
+                                                                      uint32_t *pQueueFamilyPropertyCount,
+                                                                      VkQueueFamilyProperties2KHR *pQueueFamilyProperties) {
+    auto dev_data = GetLayerDataPtr(get_dispatch_key(physicalDevice), layer_data_map);
+    dev_data->instance_dispatch_table->GetPhysicalDeviceQueueFamilyProperties2KHR(physicalDevice, pQueueFamilyPropertyCount,
+                                                                                  pQueueFamilyProperties);
+    PostCallRecordGetPhysicalDeviceQueueFamilyProperties(dev_data, physicalDevice, pQueueFamilyPropertyCount,
+                                                         pQueueFamilyProperties == NULL);
 }
 
 #ifdef VK_USE_PLATFORM_ANDROID_KHR
@@ -284,7 +296,7 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateAndroidSurfaceKHR(VkInstance instance, cons
                                                        const VkAllocationCallbacks *pAllocator, VkSurfaceKHR *pSurface) {
     VkResult result = VK_SUCCESS;
     bool skip_call = false;
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(instance), layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(get_dispatch_key(instance), layer_data_map);
     std::unique_lock<std::mutex> lock(global_lock);
     SwpInstance *pInstance = NULL;
     {
@@ -319,14 +331,14 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateAndroidSurfaceKHR(VkInstance instance, cons
     }
     return VK_ERROR_VALIDATION_FAILED_EXT;
 }
-#endif // VK_USE_PLATFORM_ANDROID_KHR
+#endif  // VK_USE_PLATFORM_ANDROID_KHR
 
 #ifdef VK_USE_PLATFORM_MIR_KHR
 VKAPI_ATTR VkResult VKAPI_CALL CreateMirSurfaceKHR(VkInstance instance, const VkMirSurfaceCreateInfoKHR *pCreateInfo,
                                                    const VkAllocationCallbacks *pAllocator, VkSurfaceKHR *pSurface) {
     VkResult result = VK_SUCCESS;
     bool skip_call = false;
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(instance), layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(get_dispatch_key(instance), layer_data_map);
     std::unique_lock<std::mutex> lock(global_lock);
     SwpInstance *pInstance = NULL;
     {
@@ -366,7 +378,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL GetPhysicalDeviceMirPresentationSupportKHR(VkPhys
                                                                           uint32_t queueFamilyIndex, MirConnection *connection) {
     VkBool32 result = VK_FALSE;
     bool skip_call = false;
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(physicalDevice), layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(get_dispatch_key(physicalDevice), layer_data_map);
     std::unique_lock<std::mutex> lock(global_lock);
     SwpPhysicalDevice *pPhysicalDevice = NULL;
     {
@@ -388,14 +400,14 @@ VKAPI_ATTR VkBool32 VKAPI_CALL GetPhysicalDeviceMirPresentationSupportKHR(VkPhys
     }
     return result;
 }
-#endif // VK_USE_PLATFORM_MIR_KHR
+#endif  // VK_USE_PLATFORM_MIR_KHR
 
 #ifdef VK_USE_PLATFORM_WAYLAND_KHR
 VKAPI_ATTR VkResult VKAPI_CALL CreateWaylandSurfaceKHR(VkInstance instance, const VkWaylandSurfaceCreateInfoKHR *pCreateInfo,
                                                        const VkAllocationCallbacks *pAllocator, VkSurfaceKHR *pSurface) {
     VkResult result = VK_SUCCESS;
     bool skip_call = false;
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(instance), layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(get_dispatch_key(instance), layer_data_map);
     std::unique_lock<std::mutex> lock(global_lock);
     SwpInstance *pInstance = NULL;
     {
@@ -436,7 +448,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL GetPhysicalDeviceWaylandPresentationSupportKHR(Vk
                                                                               struct wl_display *display) {
     VkBool32 result = VK_FALSE;
     bool skip_call = false;
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(physicalDevice), layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(get_dispatch_key(physicalDevice), layer_data_map);
     std::unique_lock<std::mutex> lock(global_lock);
     SwpPhysicalDevice *pPhysicalDevice = NULL;
     {
@@ -458,14 +470,14 @@ VKAPI_ATTR VkBool32 VKAPI_CALL GetPhysicalDeviceWaylandPresentationSupportKHR(Vk
     }
     return result;
 }
-#endif // VK_USE_PLATFORM_WAYLAND_KHR
+#endif  // VK_USE_PLATFORM_WAYLAND_KHR
 
 #ifdef VK_USE_PLATFORM_WIN32_KHR
 VKAPI_ATTR VkResult VKAPI_CALL CreateWin32SurfaceKHR(VkInstance instance, const VkWin32SurfaceCreateInfoKHR *pCreateInfo,
                                                      const VkAllocationCallbacks *pAllocator, VkSurfaceKHR *pSurface) {
     VkResult result = VK_SUCCESS;
     bool skip_call = false;
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(instance), layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(get_dispatch_key(instance), layer_data_map);
     std::unique_lock<std::mutex> lock(global_lock);
     SwpInstance *pInstance = NULL;
     {
@@ -505,7 +517,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL GetPhysicalDeviceWin32PresentationSupportKHR(VkPh
                                                                             uint32_t queueFamilyIndex) {
     VkBool32 result = VK_FALSE;
     bool skip_call = false;
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(physicalDevice), layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(get_dispatch_key(physicalDevice), layer_data_map);
     std::unique_lock<std::mutex> lock(global_lock);
     SwpPhysicalDevice *pPhysicalDevice = NULL;
     {
@@ -526,14 +538,14 @@ VKAPI_ATTR VkBool32 VKAPI_CALL GetPhysicalDeviceWin32PresentationSupportKHR(VkPh
     }
     return result;
 }
-#endif // VK_USE_PLATFORM_WIN32_KHR
+#endif  // VK_USE_PLATFORM_WIN32_KHR
 
 #ifdef VK_USE_PLATFORM_XCB_KHR
 VKAPI_ATTR VkResult VKAPI_CALL CreateXcbSurfaceKHR(VkInstance instance, const VkXcbSurfaceCreateInfoKHR *pCreateInfo,
                                                    const VkAllocationCallbacks *pAllocator, VkSurfaceKHR *pSurface) {
     VkResult result = VK_SUCCESS;
     bool skip_call = false;
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(instance), layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(get_dispatch_key(instance), layer_data_map);
     std::unique_lock<std::mutex> lock(global_lock);
     SwpInstance *pInstance = NULL;
     {
@@ -574,7 +586,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL GetPhysicalDeviceXcbPresentationSupportKHR(VkPhys
                                                                           xcb_visualid_t visual_id) {
     VkBool32 result = VK_FALSE;
     bool skip_call = false;
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(physicalDevice), layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(get_dispatch_key(physicalDevice), layer_data_map);
     std::unique_lock<std::mutex> lock(global_lock);
     SwpPhysicalDevice *pPhysicalDevice = NULL;
     {
@@ -596,14 +608,14 @@ VKAPI_ATTR VkBool32 VKAPI_CALL GetPhysicalDeviceXcbPresentationSupportKHR(VkPhys
     }
     return result;
 }
-#endif // VK_USE_PLATFORM_XCB_KHR
+#endif  // VK_USE_PLATFORM_XCB_KHR
 
 #ifdef VK_USE_PLATFORM_XLIB_KHR
 VKAPI_ATTR VkResult VKAPI_CALL CreateXlibSurfaceKHR(VkInstance instance, const VkXlibSurfaceCreateInfoKHR *pCreateInfo,
                                                     const VkAllocationCallbacks *pAllocator, VkSurfaceKHR *pSurface) {
     VkResult result = VK_SUCCESS;
     bool skip_call = false;
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(instance), layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(get_dispatch_key(instance), layer_data_map);
     std::unique_lock<std::mutex> lock(global_lock);
     SwpInstance *pInstance = NULL;
     {
@@ -644,7 +656,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL GetPhysicalDeviceXlibPresentationSupportKHR(VkPhy
                                                                            VisualID visualID) {
     VkBool32 result = VK_FALSE;
     bool skip_call = false;
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(physicalDevice), layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(get_dispatch_key(physicalDevice), layer_data_map);
     std::unique_lock<std::mutex> lock(global_lock);
     SwpPhysicalDevice *pPhysicalDevice = NULL;
     {
@@ -666,13 +678,13 @@ VKAPI_ATTR VkBool32 VKAPI_CALL GetPhysicalDeviceXlibPresentationSupportKHR(VkPhy
     }
     return result;
 }
-#endif // VK_USE_PLATFORM_XLIB_KHR
+#endif  // VK_USE_PLATFORM_XLIB_KHR
 
 VKAPI_ATTR VkResult VKAPI_CALL GetPhysicalDeviceDisplayPlanePropertiesKHR(VkPhysicalDevice physicalDevice, uint32_t *pPropertyCount,
                                                                           VkDisplayPlanePropertiesKHR *pProperties) {
     VkResult result = VK_SUCCESS;
     bool skip_call = false;
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(physicalDevice), layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(get_dispatch_key(physicalDevice), layer_data_map);
     std::unique_lock<std::mutex> lock(global_lock);
     SwpPhysicalDevice *pPhysicalDevice = NULL;
     {
@@ -702,7 +714,7 @@ VKAPI_ATTR VkResult VKAPI_CALL GetDisplayPlaneSupportedDisplaysKHR(VkPhysicalDev
                                                                    uint32_t *pDisplayCount, VkDisplayKHR *pDisplays) {
     VkResult result = VK_SUCCESS;
     bool skip_call = false;
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(physicalDevice), layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(get_dispatch_key(physicalDevice), layer_data_map);
     std::unique_lock<std::mutex> lock(global_lock);
     SwpPhysicalDevice *pPhysicalDevice = NULL;
     {
@@ -743,7 +755,7 @@ VKAPI_ATTR VkResult VKAPI_CALL GetDisplayPlaneCapabilitiesKHR(VkPhysicalDevice p
                                                               uint32_t planeIndex, VkDisplayPlaneCapabilitiesKHR *pCapabilities) {
     VkResult result = VK_SUCCESS;
     bool skip_call = false;
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(physicalDevice), layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(get_dispatch_key(physicalDevice), layer_data_map);
     std::unique_lock<std::mutex> lock(global_lock);
     SwpPhysicalDevice *pPhysicalDevice = NULL;
     {
@@ -782,7 +794,7 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateDisplayPlaneSurfaceKHR(VkInstance instance,
                                                             const VkAllocationCallbacks *pAllocator, VkSurfaceKHR *pSurface) {
     VkResult result = VK_SUCCESS;
     bool skip_call = false;
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(instance), layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(get_dispatch_key(instance), layer_data_map);
     std::unique_lock<std::mutex> lock(global_lock);
     SwpInstance *pInstance = &(my_data->instanceMap[instance]);
 
@@ -812,7 +824,7 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateDisplayPlaneSurfaceKHR(VkInstance instance,
 
 VKAPI_ATTR void VKAPI_CALL DestroySurfaceKHR(VkInstance instance, VkSurfaceKHR surface, const VkAllocationCallbacks *pAllocator) {
     bool skip_call = false;
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(instance), layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(get_dispatch_key(instance), layer_data_map);
     std::unique_lock<std::mutex> lock(global_lock);
     SwpSurface *pSurface = NULL;
     {
@@ -858,7 +870,7 @@ VKAPI_ATTR void VKAPI_CALL DestroySurfaceKHR(VkInstance instance, VkSurfaceKHR s
 VKAPI_ATTR VkResult VKAPI_CALL EnumeratePhysicalDevices(VkInstance instance, uint32_t *pPhysicalDeviceCount,
                                                         VkPhysicalDevice *pPhysicalDevices) {
     VkResult result = VK_SUCCESS;
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(instance), layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(get_dispatch_key(instance), layer_data_map);
 
     // Call down the call chain:
     result = my_data->instance_dispatch_table->EnumeratePhysicalDevices(instance, pPhysicalDeviceCount, pPhysicalDevices);
@@ -887,7 +899,7 @@ VKAPI_ATTR VkResult VKAPI_CALL EnumeratePhysicalDevices(VkInstance instance, uin
 
 VKAPI_ATTR VkResult VKAPI_CALL CreateDevice(VkPhysicalDevice physicalDevice, const VkDeviceCreateInfo *pCreateInfo,
                                             const VkAllocationCallbacks *pAllocator, VkDevice *pDevice) {
-    layer_data *my_instance_data = get_my_data_ptr(get_dispatch_key(physicalDevice), layer_data_map);
+    layer_data *my_instance_data = GetLayerDataPtr(get_dispatch_key(physicalDevice), layer_data_map);
     VkLayerDeviceCreateInfo *chain_info = get_chain_info(pCreateInfo, VK_LAYER_LINK_INFO);
 
     assert(chain_info->u.pLayerInfo);
@@ -907,7 +919,7 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateDevice(VkPhysicalDevice physicalDevice, con
     }
 
     std::lock_guard<std::mutex> lock(global_lock);
-    layer_data *my_device_data = get_my_data_ptr(get_dispatch_key(*pDevice), layer_data_map);
+    layer_data *my_device_data = GetLayerDataPtr(get_dispatch_key(*pDevice), layer_data_map);
 
     // Setup device dispatch table
     my_device_data->device_dispatch_table = new VkLayerDispatchTable;
@@ -921,7 +933,7 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateDevice(VkPhysicalDevice physicalDevice, con
 
 VKAPI_ATTR void VKAPI_CALL DestroyDevice(VkDevice device, const VkAllocationCallbacks *pAllocator) {
     dispatch_key key = get_dispatch_key(device);
-    layer_data *my_data = get_my_data_ptr(key, layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(key, layer_data_map);
 
     // Call down the call chain:
     my_data->device_dispatch_table->DestroyDevice(device, pAllocator);
@@ -967,7 +979,7 @@ VKAPI_ATTR VkResult VKAPI_CALL GetPhysicalDeviceSurfaceSupportKHR(VkPhysicalDevi
                                                                   VkSurfaceKHR surface, VkBool32 *pSupported) {
     VkResult result = VK_SUCCESS;
     bool skip_call = false;
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(physicalDevice), layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(get_dispatch_key(physicalDevice), layer_data_map);
     std::unique_lock<std::mutex> lock(global_lock);
     SwpPhysicalDevice *pPhysicalDevice = NULL;
     {
@@ -1034,7 +1046,7 @@ static bool validateCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateI
     // TODO: Validate cases of re-creating a swapchain (the current code
     // assumes a new swapchain is being created).
     bool skip_call = false;
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(device), layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
     SwpDevice *pDevice = NULL;
     {
         auto it = my_data->deviceMap.find(device);
@@ -1066,7 +1078,6 @@ static bool validateCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateI
                                  "However, vkGetPhysicalDeviceSurfaceSupportKHR() was never called with this surface. %s",
                                  validation_error_map[VALIDATION_ERROR_01922]);
         }
-
     }
 
     // Validate pCreateInfo->imageSharingMode and related values:
@@ -1094,7 +1105,7 @@ static bool validateCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateI
 VKAPI_ATTR VkResult VKAPI_CALL CreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR *pCreateInfo,
                                                   const VkAllocationCallbacks *pAllocator, VkSwapchainKHR *pSwapchain) {
     VkResult result = VK_SUCCESS;
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(device), layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
     std::unique_lock<std::mutex> lock(global_lock);
     bool skip_call = validateCreateSwapchainKHR(device, pCreateInfo, pSwapchain);
     lock.unlock();
@@ -1122,7 +1133,7 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateSwapchainKHR(VkDevice device, const VkSwapc
             SwpPhysicalDevice *pPhysicalDevice = pDevice->pPhysicalDevice;
             SwpInstance *pInstance = (pPhysicalDevice) ? pPhysicalDevice->pInstance : NULL;
             layer_data *my_instance_data =
-                ((pInstance) ? get_my_data_ptr(get_dispatch_key(pInstance->instance), layer_data_map) : NULL);
+                ((pInstance) ? GetLayerDataPtr(get_dispatch_key(pInstance->instance), layer_data_map) : NULL);
             SwpSurface *pSurface = ((my_data && pCreateInfo) ? &my_instance_data->surfaceMap[pCreateInfo->surface] : NULL);
             my_data->swapchainMap[*pSwapchain].pSurface = pSurface;
             if (pSurface) {
@@ -1143,7 +1154,7 @@ VKAPI_ATTR void VKAPI_CALL DestroySwapchainKHR(VkDevice device, VkSwapchainKHR s
     //   presentable images acquired from pname:swapchain must: have completed
     //   execution
     bool skip_call = false;
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(device), layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
     std::unique_lock<std::mutex> lock(global_lock);
 
     // Regardless of skip_call value, do some internal cleanup:
@@ -1174,7 +1185,7 @@ VKAPI_ATTR VkResult VKAPI_CALL GetSwapchainImagesKHR(VkDevice device, VkSwapchai
                                                      VkImage *pSwapchainImages) {
     VkResult result = VK_SUCCESS;
     bool skip_call = false;
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(device), layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
     std::unique_lock<std::mutex> lock(global_lock);
 
     SwpSwapchain *pSwapchain = NULL;
@@ -1227,10 +1238,9 @@ VKAPI_ATTR VkResult VKAPI_CALL GetSwapchainImagesKHR(VkDevice device, VkSwapchai
     return VK_ERROR_VALIDATION_FAILED_EXT;
 }
 
-VKAPI_ATTR void VKAPI_CALL
-GetDeviceQueue(VkDevice device, uint32_t queueFamilyIndex, uint32_t queueIndex, VkQueue *pQueue) {
+VKAPI_ATTR void VKAPI_CALL GetDeviceQueue(VkDevice device, uint32_t queueFamilyIndex, uint32_t queueIndex, VkQueue *pQueue) {
     bool skip_call = false;
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(device), layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
 
     if (!skip_call) {
         // Call down the call chain:
@@ -1256,7 +1266,7 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateDebugReportCallbackEXT(VkInstance instance,
                                                             const VkDebugReportCallbackCreateInfoEXT *pCreateInfo,
                                                             const VkAllocationCallbacks *pAllocator,
                                                             VkDebugReportCallbackEXT *pMsgCallback) {
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(instance), layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(get_dispatch_key(instance), layer_data_map);
     VkResult result =
         my_data->instance_dispatch_table->CreateDebugReportCallbackEXT(instance, pCreateInfo, pAllocator, pMsgCallback);
     if (VK_SUCCESS == result) {
@@ -1268,7 +1278,7 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateDebugReportCallbackEXT(VkInstance instance,
 
 VKAPI_ATTR void VKAPI_CALL DestroyDebugReportCallbackEXT(VkInstance instance, VkDebugReportCallbackEXT msgCallback,
                                                          const VkAllocationCallbacks *pAllocator) {
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(instance), layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(get_dispatch_key(instance), layer_data_map);
     my_data->instance_dispatch_table->DestroyDebugReportCallbackEXT(instance, msgCallback, pAllocator);
     std::lock_guard<std::mutex> lock(global_lock);
     layer_destroy_msg_callback(my_data->report_data, msgCallback, pAllocator);
@@ -1277,7 +1287,7 @@ VKAPI_ATTR void VKAPI_CALL DestroyDebugReportCallbackEXT(VkInstance instance, Vk
 VKAPI_ATTR void VKAPI_CALL DebugReportMessageEXT(VkInstance instance, VkDebugReportFlagsEXT flags,
                                                  VkDebugReportObjectTypeEXT objType, uint64_t object, size_t location,
                                                  int32_t msgCode, const char *pLayerPrefix, const char *pMsg) {
-    layer_data *my_data = get_my_data_ptr(get_dispatch_key(instance), layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(get_dispatch_key(instance), layer_data_map);
     my_data->instance_dispatch_table->DebugReportMessageEXT(instance, flags, objType, object, location, msgCode, pLayerPrefix,
                                                             pMsg);
 }
@@ -1307,7 +1317,7 @@ VKAPI_ATTR VkResult VKAPI_CALL EnumerateDeviceExtensionProperties(VkPhysicalDevi
     assert(physicalDevice);
 
     dispatch_key key = get_dispatch_key(physicalDevice);
-    layer_data *my_data = get_my_data_ptr(key, layer_data_map);
+    layer_data *my_data = GetLayerDataPtr(key, layer_data_map);
     return my_data->instance_dispatch_table->EnumerateDeviceExtensionProperties(physicalDevice, NULL, pCount, pProperties);
 }
 
@@ -1315,55 +1325,60 @@ static PFN_vkVoidFunction intercept_core_instance_command(const char *name);
 
 static PFN_vkVoidFunction intercept_khr_surface_command(const char *name, VkInstance instance);
 
+static PFN_vkVoidFunction intercept_extension_instance_commands(const char *name);
+
 static PFN_vkVoidFunction intercept_core_device_command(const char *name);
 
 static PFN_vkVoidFunction intercept_khr_swapchain_command(const char *name, VkDevice dev);
 
 VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetDeviceProcAddr(VkDevice device, const char *funcName) {
     PFN_vkVoidFunction proc = intercept_core_device_command(funcName);
-    if (proc)
-        return proc;
+    if (proc) return proc;
 
     assert(device);
 
     layer_data *my_data;
 
-    my_data = get_my_data_ptr(get_dispatch_key(device), layer_data_map);
+    my_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
     VkLayerDispatchTable *pDisp = my_data->device_dispatch_table;
 
     proc = intercept_khr_swapchain_command(funcName, device);
-    if (proc)
-        return proc;
+    if (proc) return proc;
 
-    if (pDisp->GetDeviceProcAddr == NULL)
-        return NULL;
+    if (pDisp->GetDeviceProcAddr == NULL) return NULL;
     return pDisp->GetDeviceProcAddr(device, funcName);
 }
 
 VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetInstanceProcAddr(VkInstance instance, const char *funcName) {
     PFN_vkVoidFunction proc = intercept_core_instance_command(funcName);
-    if (!proc)
-        proc = intercept_core_device_command(funcName);
-    if (!proc)
-        proc = intercept_khr_swapchain_command(funcName, VK_NULL_HANDLE);
-    if (proc)
-        return proc;
+    if (!proc) proc = intercept_core_device_command(funcName);
+    if (!proc) proc = intercept_khr_swapchain_command(funcName, VK_NULL_HANDLE);
+    if (proc) return proc;
 
     assert(instance);
 
     layer_data *my_data;
-    my_data = get_my_data_ptr(get_dispatch_key(instance), layer_data_map);
+    my_data = GetLayerDataPtr(get_dispatch_key(instance), layer_data_map);
     VkLayerInstanceDispatchTable *pTable = my_data->instance_dispatch_table;
 
     proc = debug_report_get_instance_proc_addr(my_data->report_data, funcName);
-    if (!proc)
-        proc = intercept_khr_surface_command(funcName, instance);
-    if (proc)
-        return proc;
+    if (!proc) proc = intercept_khr_surface_command(funcName, instance);
+    if (!proc) proc = intercept_extension_instance_commands(funcName);
+    if (proc) return proc;
 
-    if (pTable->GetInstanceProcAddr == NULL)
-        return NULL;
+    if (pTable->GetInstanceProcAddr == NULL) return NULL;
     return pTable->GetInstanceProcAddr(instance, funcName);
+}
+
+VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetPhysicalDeviceProcAddr(VkInstance instance, const char *funcName) {
+    assert(instance);
+
+    layer_data *my_data;
+    my_data = GetLayerDataPtr(get_dispatch_key(instance), layer_data_map);
+    VkLayerInstanceDispatchTable *pTable = my_data->instance_dispatch_table;
+
+    if (pTable->GetPhysicalDeviceProcAddr == NULL) return NULL;
+    return pTable->GetPhysicalDeviceProcAddr(instance, funcName);
 }
 
 static PFN_vkVoidFunction intercept_core_instance_command(const char *name) {
@@ -1376,6 +1391,7 @@ static PFN_vkVoidFunction intercept_core_instance_command(const char *name) {
         {"vkDestroyInstance", reinterpret_cast<PFN_vkVoidFunction>(DestroyInstance)},
         {"vkCreateDevice", reinterpret_cast<PFN_vkVoidFunction>(CreateDevice)},
         {"vkEnumeratePhysicalDevices", reinterpret_cast<PFN_vkVoidFunction>(EnumeratePhysicalDevices)},
+        {"vk_layerGetPhysicalDeviceProcAddr", reinterpret_cast<PFN_vkVoidFunction>(GetPhysicalDeviceProcAddr)},
         {"vkEnumerateInstanceLayerProperties", reinterpret_cast<PFN_vkVoidFunction>(EnumerateInstanceLayerProperties)},
         {"vkEnumerateDeviceLayerProperties", reinterpret_cast<PFN_vkVoidFunction>(EnumerateDeviceLayerProperties)},
         {"vkEnumerateInstanceExtensionProperties", reinterpret_cast<PFN_vkVoidFunction>(EnumerateInstanceExtensionProperties)},
@@ -1384,8 +1400,7 @@ static PFN_vkVoidFunction intercept_core_instance_command(const char *name) {
     };
 
     for (size_t i = 0; i < ARRAY_SIZE(core_instance_commands); i++) {
-        if (!strcmp(core_instance_commands[i].name, name))
-            return core_instance_commands[i].proc;
+        if (!strcmp(core_instance_commands[i].name, name)) return core_instance_commands[i].proc;
     }
 
     return nullptr;
@@ -1398,32 +1413,32 @@ static PFN_vkVoidFunction intercept_khr_surface_command(const char *name, VkInst
     } khr_surface_commands[] = {
 #ifdef VK_USE_PLATFORM_ANDROID_KHR
         {"vkCreateAndroidSurfaceKHR", reinterpret_cast<PFN_vkVoidFunction>(CreateAndroidSurfaceKHR)},
-#endif // VK_USE_PLATFORM_ANDROID_KHR
+#endif  // VK_USE_PLATFORM_ANDROID_KHR
 #ifdef VK_USE_PLATFORM_MIR_KHR
         {"vkCreateMirSurfaceKHR", reinterpret_cast<PFN_vkVoidFunction>(CreateMirSurfaceKHR)},
         {"vkGetPhysicalDeviceMirPresentationSupportKHR",
          reinterpret_cast<PFN_vkVoidFunction>(GetPhysicalDeviceMirPresentationSupportKHR)},
-#endif // VK_USE_PLATFORM_MIR_KHR
+#endif  // VK_USE_PLATFORM_MIR_KHR
 #ifdef VK_USE_PLATFORM_WAYLAND_KHR
         {"vkCreateWaylandSurfaceKHR", reinterpret_cast<PFN_vkVoidFunction>(CreateWaylandSurfaceKHR)},
         {"vkGetPhysicalDeviceWaylandPresentationSupportKHR",
          reinterpret_cast<PFN_vkVoidFunction>(GetPhysicalDeviceWaylandPresentationSupportKHR)},
-#endif // VK_USE_PLATFORM_WAYLAND_KHR
+#endif  // VK_USE_PLATFORM_WAYLAND_KHR
 #ifdef VK_USE_PLATFORM_WIN32_KHR
         {"vkCreateWin32SurfaceKHR", reinterpret_cast<PFN_vkVoidFunction>(CreateWin32SurfaceKHR)},
         {"vkGetPhysicalDeviceWin32PresentationSupportKHR",
          reinterpret_cast<PFN_vkVoidFunction>(GetPhysicalDeviceWin32PresentationSupportKHR)},
-#endif // VK_USE_PLATFORM_WIN32_KHR
+#endif  // VK_USE_PLATFORM_WIN32_KHR
 #ifdef VK_USE_PLATFORM_XCB_KHR
         {"vkCreateXcbSurfaceKHR", reinterpret_cast<PFN_vkVoidFunction>(CreateXcbSurfaceKHR)},
         {"vkGetPhysicalDeviceXcbPresentationSupportKHR",
          reinterpret_cast<PFN_vkVoidFunction>(GetPhysicalDeviceXcbPresentationSupportKHR)},
-#endif // VK_USE_PLATFORM_XCB_KHR
+#endif  // VK_USE_PLATFORM_XCB_KHR
 #ifdef VK_USE_PLATFORM_XLIB_KHR
         {"vkCreateXlibSurfaceKHR", reinterpret_cast<PFN_vkVoidFunction>(CreateXlibSurfaceKHR)},
         {"vkGetPhysicalDeviceXlibPresentationSupportKHR",
          reinterpret_cast<PFN_vkVoidFunction>(GetPhysicalDeviceXlibPresentationSupportKHR)},
-#endif // VK_USE_PLATFORM_XLIB_KHR
+#endif  // VK_USE_PLATFORM_XLIB_KHR
         {"vkDestroySurfaceKHR", reinterpret_cast<PFN_vkVoidFunction>(DestroySurfaceKHR)},
         {"vkGetPhysicalDeviceSurfaceSupportKHR", reinterpret_cast<PFN_vkVoidFunction>(GetPhysicalDeviceSurfaceSupportKHR)},
         {"vkGetPhysicalDeviceDisplayPlanePropertiesKHR",
@@ -1436,10 +1451,26 @@ static PFN_vkVoidFunction intercept_khr_surface_command(const char *name, VkInst
     // do not check if VK_KHR_*_surface is enabled (why?)
 
     for (size_t i = 0; i < ARRAY_SIZE(khr_surface_commands); i++) {
-        if (!strcmp(khr_surface_commands[i].name, name))
-            return khr_surface_commands[i].proc;
+        if (!strcmp(khr_surface_commands[i].name, name)) return khr_surface_commands[i].proc;
     }
 
+    return nullptr;
+}
+
+static PFN_vkVoidFunction intercept_extension_instance_commands(const char *name) {
+    static const struct {
+        const char *name;
+        PFN_vkVoidFunction proc;
+    } instance_extension_commands[] = {
+        {"vkGetPhysicalDeviceQueueFamilyProperties2KHR",
+         reinterpret_cast<PFN_vkVoidFunction>(GetPhysicalDeviceQueueFamilyProperties2KHR)},
+    };
+
+    for (size_t i = 0; i < ARRAY_SIZE(instance_extension_commands); i++) {
+        if (!strcmp(instance_extension_commands[i].name, name)) {
+            return instance_extension_commands[i].proc;
+        }
+    }
     return nullptr;
 }
 
@@ -1454,8 +1485,7 @@ static PFN_vkVoidFunction intercept_core_device_command(const char *name) {
     };
 
     for (size_t i = 0; i < ARRAY_SIZE(core_device_commands); i++) {
-        if (!strcmp(core_device_commands[i].name, name))
-            return core_device_commands[i].proc;
+        if (!strcmp(core_device_commands[i].name, name)) return core_device_commands[i].proc;
     }
 
     return nullptr;
@@ -1474,14 +1504,13 @@ static PFN_vkVoidFunction intercept_khr_swapchain_command(const char *name, VkDe
     // do not check if VK_KHR_swapchain is enabled (why?)
 
     for (size_t i = 0; i < ARRAY_SIZE(khr_swapchain_commands); i++) {
-        if (!strcmp(khr_swapchain_commands[i].name, name))
-            return khr_swapchain_commands[i].proc;
+        if (!strcmp(khr_swapchain_commands[i].name, name)) return khr_swapchain_commands[i].proc;
     }
 
     return nullptr;
 }
 
-} // namespace swapchain
+}  // namespace swapchain
 
 // vk_layer_logging.h expects these to be defined
 
@@ -1536,4 +1565,29 @@ VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetDeviceProcAddr(VkD
 
 VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetInstanceProcAddr(VkInstance instance, const char *funcName) {
     return swapchain::GetInstanceProcAddr(instance, funcName);
+}
+
+VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vk_layerGetPhysicalDeviceProcAddr(VkInstance instance,
+                                                                                           const char *funcName) {
+    return swapchain::GetPhysicalDeviceProcAddr(instance, funcName);
+}
+
+VK_LAYER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkNegotiateLoaderLayerInterfaceVersion(VkNegotiateLayerInterface *pVersionStruct) {
+    assert(pVersionStruct != NULL);
+    assert(pVersionStruct->sType == LAYER_NEGOTIATE_INTERFACE_STRUCT);
+
+    // Fill in the function pointers if our version is at least capable of having the structure contain them.
+    if (pVersionStruct->loaderLayerInterfaceVersion >= 2) {
+        pVersionStruct->pfnGetInstanceProcAddr = vkGetInstanceProcAddr;
+        pVersionStruct->pfnGetDeviceProcAddr = vkGetDeviceProcAddr;
+        pVersionStruct->pfnGetPhysicalDeviceProcAddr = vk_layerGetPhysicalDeviceProcAddr;
+    }
+
+    if (pVersionStruct->loaderLayerInterfaceVersion < CURRENT_LOADER_LAYER_INTERFACE_VERSION) {
+        swapchain::loader_layer_if_version = pVersionStruct->loaderLayerInterfaceVersion;
+    } else if (pVersionStruct->loaderLayerInterfaceVersion > CURRENT_LOADER_LAYER_INTERFACE_VERSION) {
+        pVersionStruct->loaderLayerInterfaceVersion = CURRENT_LOADER_LAYER_INTERFACE_VERSION;
+    }
+
+    return VK_SUCCESS;
 }

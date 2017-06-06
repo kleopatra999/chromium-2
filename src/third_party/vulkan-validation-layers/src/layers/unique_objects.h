@@ -30,58 +30,16 @@
 
 namespace unique_objects {
 
-// The display-server-specific WSI extensions are handled explicitly
-static const char *kUniqueObjectsSupportedInstanceExtensions =
-#ifdef VK_USE_PLATFORM_XLIB_KHR
-    VK_KHR_XLIB_SURFACE_EXTENSION_NAME
-#endif
-#ifdef VK_USE_PLATFORM_XCB_KHR
-    VK_KHR_XCB_SURFACE_EXTENSION_NAME
-#endif
-#ifdef VK_USE_PLATFORM_WAYLAND_KHR
-    VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME
-#endif
-#ifdef VK_USE_PLATFORM_MIR_KHR
-    VK_KHR_MIR_SURFACE_EXTENSION_NAME
-#endif
-#ifdef VK_USE_PLATFORM_ANDROID_KHR
-    VK_KHR_ANDROID_SURFACE_EXTENSION_NAME
-#endif
-#ifdef VK_USE_PLATFORM_WIN32_KHR
-    VK_KHR_WIN32_SURFACE_EXTENSION_NAME
-#endif
-    VK_EXT_DEBUG_MARKER_EXTENSION_NAME
-    VK_EXT_DEBUG_REPORT_EXTENSION_NAME
-    VK_KHR_DISPLAY_EXTENSION_NAME
-    VK_KHR_SURFACE_EXTENSION_NAME
-    VK_NV_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME
-    VK_EXT_VALIDATION_FLAGS_EXTENSION_NAME;
-
-static const char *kUniqueObjectsSupportedDeviceExtensions =
-    VK_AMD_RASTERIZATION_ORDER_EXTENSION_NAME
-    VK_AMD_SHADER_TRINARY_MINMAX_EXTENSION_NAME
-    VK_AMD_SHADER_EXPLICIT_VERTEX_PARAMETER_EXTENSION_NAME
-    VK_AMD_GCN_SHADER_EXTENSION_NAME
-    VK_IMG_FILTER_CUBIC_EXTENSION_NAME
-    VK_IMG_FORMAT_PVRTC_EXTENSION_NAME
-    VK_KHR_SAMPLER_MIRROR_CLAMP_TO_EDGE_EXTENSION_NAME
-    VK_KHR_SWAPCHAIN_EXTENSION_NAME
-    VK_KHR_DISPLAY_SWAPCHAIN_EXTENSION_NAME
-    VK_NV_DEDICATED_ALLOCATION_EXTENSION_NAME
-    VK_NV_GLSL_SHADER_EXTENSION_NAME
-    VK_AMD_DRAW_INDIRECT_COUNT_EXTENSION_NAME
-    VK_AMD_NEGATIVE_VIEWPORT_HEIGHT_EXTENSION_NAME
-    VK_AMD_GPU_SHADER_HALF_FLOAT_EXTENSION_NAME
-    VK_AMD_SHADER_BALLOT_EXTENSION_NAME
-    VK_NV_EXTERNAL_MEMORY_EXTENSION_NAME
-#ifdef VK_USE_PLATFORM_WIN32_KHR
-    VK_NV_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME
-    VK_NV_WIN32_KEYED_MUTEX_EXTENSION_NAME
-#endif
-    VK_NV_EXTERNAL_MEMORY_EXTENSION_NAME;
-
 // All increments must be guarded by global_lock
 static uint64_t global_unique_id = 1;
+
+struct TEMPLATE_STATE {
+    VkDescriptorUpdateTemplateKHR desc_update_template;
+    safe_VkDescriptorUpdateTemplateCreateInfoKHR create_info;
+
+    TEMPLATE_STATE(VkDescriptorUpdateTemplateKHR update_template, safe_VkDescriptorUpdateTemplateCreateInfoKHR *pCreateInfo)
+        : desc_update_template(update_template), create_info(*pCreateInfo) {}
+};
 
 struct layer_data {
     VkInstance instance;
@@ -97,8 +55,10 @@ struct layer_data {
     VkDebugReportCallbackCreateInfoEXT *tmp_dbg_create_infos;
     VkDebugReportCallbackEXT *tmp_callbacks;
 
+    std::unordered_map<uint64_t, std::unique_ptr<TEMPLATE_STATE>> desc_template_map;
+
     bool wsi_enabled;
-    std::unordered_map<uint64_t, uint64_t> unique_id_mapping; // Map uniqueID to actual object handle
+    std::unordered_map<uint64_t, uint64_t> unique_id_mapping;  // Map uniqueID to actual object handle
     VkPhysicalDevice gpu;
 
     layer_data() : wsi_enabled(false), gpu(VK_NULL_HANDLE){};
@@ -118,14 +78,15 @@ struct instance_extension_enables {
 static std::unordered_map<void *, struct instance_extension_enables> instance_ext_map;
 static std::unordered_map<void *, layer_data *> layer_data_map;
 
-static std::mutex global_lock; // Protect map accesses and unique_id increments
+static std::mutex global_lock;  // Protect map accesses and unique_id increments
 
 struct GenericHeader {
     VkStructureType sType;
     void *pNext;
 };
 
-template <typename T> bool ContainsExtStruct(const T *target, VkStructureType ext_type) {
+template <typename T>
+bool ContainsExtStruct(const T *target, VkStructureType ext_type) {
     assert(target != nullptr);
 
     const GenericHeader *ext_struct = reinterpret_cast<const GenericHeader *>(target->pNext);
@@ -141,4 +102,4 @@ template <typename T> bool ContainsExtStruct(const T *target, VkStructureType ex
     return false;
 }
 
-} // namespace unique_objects
+}  // namespace unique_objects

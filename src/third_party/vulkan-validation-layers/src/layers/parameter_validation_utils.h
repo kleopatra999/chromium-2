@@ -35,32 +35,32 @@
 namespace parameter_validation {
 
 enum ErrorCode {
-    NONE,                 // Used for INFO & other non-error messages
-    INVALID_USAGE,        // The value of a parameter is not consistent
-                          // with the valid usage criteria defined in
-                          // the Vulkan specification.
-    INVALID_STRUCT_STYPE, // The sType field of a Vulkan structure does
-                          // not contain the value expected for a structure
-                          // of that type.
-    INVALID_STRUCT_PNEXT, // The pNext field of a Vulkan structure references
-                          // a value that is not compatible with a structure of
-                          // that type or is not NULL when a structure of that
-                          // type has no compatible pNext values.
-    REQUIRED_PARAMETER,   // A required parameter was specified as 0 or NULL.
-    RESERVED_PARAMETER,   // A parameter reserved for future use was not
-                          // specified as 0 or NULL.
-    UNRECOGNIZED_VALUE,   // A Vulkan enumeration, VkFlags, or VkBool32 parameter
-                          // contains a value that is not recognized as valid for
-                          // that type.
-    DEVICE_LIMIT,         // A specified parameter exceeds the limits returned
-                          // by the physical device
-    DEVICE_FEATURE,       // Use of a requested feature is not supported by
-                          // the device
-    FAILURE_RETURN_CODE,  // A Vulkan return code indicating a failure condition
-                          // was encountered.
-    EXTENSION_NOT_ENABLED,// An extension entrypoint was called, but the required
-                          // extension was not enabled at CreateInstance or
-                          // CreateDevice time.
+    NONE,                   // Used for INFO & other non-error messages
+    INVALID_USAGE,          // The value of a parameter is not consistent
+                            // with the valid usage criteria defined in
+                            // the Vulkan specification.
+    INVALID_STRUCT_STYPE,   // The sType field of a Vulkan structure does
+                            // not contain the value expected for a structure
+                            // of that type.
+    INVALID_STRUCT_PNEXT,   // The pNext field of a Vulkan structure references
+                            // a value that is not compatible with a structure of
+                            // that type or is not NULL when a structure of that
+                            // type has no compatible pNext values.
+    REQUIRED_PARAMETER,     // A required parameter was specified as 0 or NULL.
+    RESERVED_PARAMETER,     // A parameter reserved for future use was not
+                            // specified as 0 or NULL.
+    UNRECOGNIZED_VALUE,     // A Vulkan enumeration, VkFlags, or VkBool32 parameter
+                            // contains a value that is not recognized as valid for
+                            // that type.
+    DEVICE_LIMIT,           // A specified parameter exceeds the limits returned
+                            // by the physical device
+    DEVICE_FEATURE,         // Use of a requested feature is not supported by
+                            // the device
+    FAILURE_RETURN_CODE,    // A Vulkan return code indicating a failure condition
+                            // was encountered.
+    EXTENSION_NOT_ENABLED,  // An extension entrypoint was called, but the required
+                            // extension was not enabled at CreateInstance or
+                            // CreateDevice time.
 };
 
 struct GenericHeader {
@@ -81,6 +81,15 @@ struct instance_extension_enables {
     bool android_enabled;
     bool win32_enabled;
     bool display_enabled;
+    bool khr_get_phys_dev_properties2_enabled;
+    bool khx_device_group_creation_enabled;
+    bool khx_external_fence_capabilities_enabled;
+    bool khx_external_memory_capabilities_enabled;
+    bool khx_external_semaphore_capabilities_enabled;
+    bool ext_acquire_xlib_display_enabled;
+    bool ext_direct_mode_display_enabled;
+    bool ext_display_surface_counter_enabled;
+    bool nv_external_memory_capabilities_enabled;
 };
 
 // String returned by string_VkStructureType for an unrecognized type.
@@ -94,14 +103,16 @@ const std::string UnsupportedResultString = "Unhandled VkResult";
 // See Appendix C.10 "Assigning Extension Token Values" from the Vulkan specification
 const uint32_t ExtEnumBaseValue = 1000000000;
 
-template <typename T> bool is_extension_added_token(T value) {
+template <typename T>
+bool is_extension_added_token(T value) {
     return (static_cast<uint32_t>(std::abs(static_cast<int32_t>(value))) >= ExtEnumBaseValue);
 }
 
 // VK_SAMPLER_ADDRESS_MODE_MIRROR_CLAMP_TO_EDGE token is a special case that was converted from a core token to an
 // extension added token.  Its original value was intentionally preserved after the conversion, so it does not use
 // the base value that other extension added tokens use, and it does not fall within the enum's begin/end range.
-template <> bool is_extension_added_token(VkSamplerAddressMode value) {
+template <>
+bool is_extension_added_token(VkSamplerAddressMode value) {
     bool result = (static_cast<uint32_t>(std::abs(static_cast<int32_t>(value))) >= ExtEnumBaseValue);
     return (result || (value == VK_SAMPLER_ADDRESS_MODE_MIRROR_CLAMP_TO_EDGE));
 }
@@ -147,7 +158,6 @@ static bool validate_required_pointer(debug_report_data *report_data, const char
     bool skip_call = false;
 
     if (value == NULL) {
-
         skip_call |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0, __LINE__,
                              REQUIRED_PARAMETER, LayerName, "%s: required parameter %s specified as NULL", apiName,
                              parameterName.get_name().c_str());
@@ -181,15 +191,15 @@ bool validate_array(debug_report_data *report_data, const char *apiName, const P
     // Count parameters not tagged as optional cannot be 0
     if (countRequired && (count == 0)) {
         skip_call |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0, __LINE__,
-                            REQUIRED_PARAMETER, LayerName, "%s: parameter %s must be greater than 0", apiName,
-                            countName.get_name().c_str());
+                             REQUIRED_PARAMETER, LayerName, "%s: parameter %s must be greater than 0", apiName,
+                             countName.get_name().c_str());
     }
 
     // Array parameters not tagged as optional cannot be NULL, unless the count is 0
     if ((array == NULL) && arrayRequired && (count != 0)) {
         skip_call |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0, __LINE__,
-                            REQUIRED_PARAMETER, LayerName, "%s: required parameter %s specified as NULL", apiName,
-                            arrayName.get_name().c_str());
+                             REQUIRED_PARAMETER, LayerName, "%s: required parameter %s specified as NULL", apiName,
+                             arrayName.get_name().c_str());
     }
 
     return skip_call;
@@ -227,8 +237,7 @@ bool validate_array(debug_report_data *report_data, const char *apiName, const P
                                  REQUIRED_PARAMETER, LayerName, "%s: required parameter %s specified as NULL", apiName,
                                  countName.get_name().c_str());
         }
-    }
-    else {
+    } else {
         skip_call |= validate_array(report_data, apiName, countName, arrayName, (*count), array, countValueRequired, arrayRequired);
     }
 
@@ -272,47 +281,6 @@ bool validate_struct_type(debug_report_data *report_data, const char *apiName, c
 }
 
 /**
- * Validate an array of Vulkan structures.
- *
- * Verify that required count and array parameters are not NULL.  If count
- * is not NULL and its value is not optional, verify that it is not 0.
- * If the array contains 1 or more structures, verify that each structure's
- * sType field is set to the correct VkStructureType value.
- *
- * @param report_data debug_report_data object for routing validation messages.
- * @param apiName Name of API call being validated.
- * @param countName Name of count parameter.
- * @param arrayName Name of array parameter.
- * @param sTypeName Name of expected VkStructureType value.
- * @param count Pointer to the number of elements in the array.
- * @param array Array to validate.
- * @param sType VkStructureType for structure validation.
- * @param countPtrRequired The 'count' parameter may not be NULL when true.
- * @param countValueRequired The '*count' value may not be 0 when true.
- * @param arrayRequired The 'array' parameter may not be NULL when true.
- * @return Boolean value indicating that the call should be skipped.
- */
-template <typename T>
-bool validate_struct_type_array(debug_report_data *report_data, const char *apiName, const ParameterName &countName,
-                                const ParameterName &arrayName, const char *sTypeName, const uint32_t *count, const T *array,
-                                VkStructureType sType, bool countPtrRequired, bool countValueRequired, bool arrayRequired) {
-    bool skip_call = false;
-
-    if (count == NULL) {
-        if (countPtrRequired) {
-            skip_call |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0, __LINE__,
-                                 REQUIRED_PARAMETER, LayerName, "%s: required parameter %s specified as NULL", apiName,
-                                 countName.get_name().c_str());
-        }
-    } else {
-        skip_call |= validate_struct_type_array(report_data, apiName, countName, arrayName, sTypeName, (*count), array, sType,
-                                                countValueRequired, arrayRequired);
-    }
-
-    return skip_call;
-}
-
-/**
  * Validate an array of Vulkan structures
  *
  * Verify that required count and array parameters are not 0 or NULL.  If
@@ -348,6 +316,47 @@ bool validate_struct_type_array(debug_report_data *report_data, const char *apiN
                                      arrayName.get_name().c_str(), i, sTypeName);
             }
         }
+    }
+
+    return skip_call;
+}
+
+/**
+ * Validate an array of Vulkan structures.
+ *
+ * Verify that required count and array parameters are not NULL.  If count
+ * is not NULL and its value is not optional, verify that it is not 0.
+ * If the array contains 1 or more structures, verify that each structure's
+ * sType field is set to the correct VkStructureType value.
+ *
+ * @param report_data debug_report_data object for routing validation messages.
+ * @param apiName Name of API call being validated.
+ * @param countName Name of count parameter.
+ * @param arrayName Name of array parameter.
+ * @param sTypeName Name of expected VkStructureType value.
+ * @param count Pointer to the number of elements in the array.
+ * @param array Array to validate.
+ * @param sType VkStructureType for structure validation.
+ * @param countPtrRequired The 'count' parameter may not be NULL when true.
+ * @param countValueRequired The '*count' value may not be 0 when true.
+ * @param arrayRequired The 'array' parameter may not be NULL when true.
+ * @return Boolean value indicating that the call should be skipped.
+ */
+template <typename T>
+bool validate_struct_type_array(debug_report_data *report_data, const char *apiName, const ParameterName &countName,
+                                const ParameterName &arrayName, const char *sTypeName, uint32_t *count, const T *array,
+                                VkStructureType sType, bool countPtrRequired, bool countValueRequired, bool arrayRequired) {
+    bool skip_call = false;
+
+    if (count == NULL) {
+        if (countPtrRequired) {
+            skip_call |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0, __LINE__,
+                                 REQUIRED_PARAMETER, LayerName, "%s: required parameter %s specified as NULL", apiName,
+                                 countName.get_name().c_str());
+        }
+    } else {
+        skip_call |= validate_struct_type_array(report_data, apiName, countName, arrayName, sTypeName, (*count), array, sType,
+                                                countValueRequired, arrayRequired);
     }
 
     return skip_call;
@@ -482,10 +491,11 @@ static bool validate_struct_pnext(debug_report_data *report_data, const char *ap
                                   const char *allowed_struct_names, const void *next, size_t allowed_type_count,
                                   const VkStructureType *allowed_types, uint32_t header_version) {
     bool skip_call = false;
-    const char disclaimer[] = "This warning is based on the Valid Usage documentation for version %d of the Vulkan header.  It "
-                              "is possible that you are using a struct from a private extension or an extension that was added "
-                              "to a later version of the Vulkan header, in which case your use of %s is perfectly valid but "
-                              "is not guaranteed to work correctly with validation enabled";
+    const char disclaimer[] =
+        "This warning is based on the Valid Usage documentation for version %d of the Vulkan header.  It "
+        "is possible that you are using a struct from a private extension or an extension that was added "
+        "to a later version of the Vulkan header, in which case your use of %s is perfectly valid but "
+        "is not guaranteed to work correctly with validation enabled";
 
     if (next != NULL) {
         if (allowed_type_count == 0) {
@@ -504,8 +514,9 @@ static bool validate_struct_pnext(debug_report_data *report_data, const char *ap
                     std::string type_name = string_VkStructureType(current->sType);
 
                     if (type_name == UnsupportedStructureTypeString) {
-                        std::string message = "%s: %s chain includes a structure with unexpected VkStructureType (%d); Allowed "
-                                              "structures are [%s].  ";
+                        std::string message =
+                            "%s: %s chain includes a structure with unexpected VkStructureType (%d); Allowed "
+                            "structures are [%s].  ";
                         message += disclaimer;
                         skip_call |= log_msg(report_data, VK_DEBUG_REPORT_WARNING_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT,
                                              0, __LINE__, INVALID_STRUCT_PNEXT, LayerName, message.c_str(), api_name,
@@ -579,11 +590,11 @@ bool validate_ranged_enum(debug_report_data *report_data, const char *apiName, c
     bool skip_call = false;
 
     if (((value < begin) || (value > end)) && !is_extension_added_token(value)) {
-        skip_call |=
-            log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0, __LINE__,
-                    UNRECOGNIZED_VALUE, LayerName, "%s: value of %s (%d) does not fall within the begin..end range of the core %s "
-                                                   "enumeration tokens and is not an extension added token",
-                    apiName, parameterName.get_name().c_str(), value, enumName);
+        skip_call |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0, __LINE__,
+                             UNRECOGNIZED_VALUE, LayerName,
+                             "%s: value of %s (%d) does not fall within the begin..end range of the core %s "
+                             "enumeration tokens and is not an extension added token",
+                             apiName, parameterName.get_name().c_str(), value, enumName);
     }
 
     return skip_call;
@@ -816,6 +827,6 @@ static void validate_result(debug_report_data *report_data, const char *apiName,
     }
 }
 
-} // namespace parameter_validation
+}  // namespace parameter_validation
 
-#endif // PARAMETER_VALIDATION_UTILS_H
+#endif  // PARAMETER_VALIDATION_UTILS_H

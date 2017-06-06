@@ -1,8 +1,8 @@
 /*
- * Copyright (c) 2015-2016 The Khronos Group Inc.
- * Copyright (c) 2015-2016 Valve Corporation
- * Copyright (c) 2015-2016 LunarG, Inc.
- * Copyright (c) 2015-2016 Google, Inc.
+ * Copyright (c) 2015-2017 The Khronos Group Inc.
+ * Copyright (c) 2015-2017 Valve Corporation
+ * Copyright (c) 2015-2017 LunarG, Inc.
+ * Copyright (c) 2015-2017 Google, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,10 +23,10 @@
 #include "vkrenderframework.h"
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
-#define GET_DEVICE_PROC_ADDR(dev, entrypoint)                                                                                      \
-    {                                                                                                                              \
-        fp##entrypoint = (PFN_vk##entrypoint)vkGetDeviceProcAddr(dev, "vk" #entrypoint);                                           \
-        assert(fp##entrypoint != NULL);                                                                                            \
+#define GET_DEVICE_PROC_ADDR(dev, entrypoint)                                            \
+    {                                                                                    \
+        fp##entrypoint = (PFN_vk##entrypoint)vkGetDeviceProcAddr(dev, "vk" #entrypoint); \
+        assert(fp##entrypoint != NULL);                                                  \
     }
 
 // TODO : These functions are duplicated is vk_layer_utils.cpp, share code
@@ -35,13 +35,13 @@ bool vk_format_is_depth_and_stencil(VkFormat format) {
     bool is_ds = false;
 
     switch (format) {
-    case VK_FORMAT_D16_UNORM_S8_UINT:
-    case VK_FORMAT_D24_UNORM_S8_UINT:
-    case VK_FORMAT_D32_SFLOAT_S8_UINT:
-        is_ds = true;
-        break;
-    default:
-        break;
+        case VK_FORMAT_D16_UNORM_S8_UINT:
+        case VK_FORMAT_D24_UNORM_S8_UINT:
+        case VK_FORMAT_D32_SFLOAT_S8_UINT:
+            is_ds = true;
+            break;
+        default:
+            break;
     }
     return is_ds;
 }
@@ -54,26 +54,48 @@ bool vk_format_is_depth_only(VkFormat format) {
     bool is_depth = false;
 
     switch (format) {
-    case VK_FORMAT_D16_UNORM:
-    case VK_FORMAT_X8_D24_UNORM_PACK32:
-    case VK_FORMAT_D32_SFLOAT:
-        is_depth = true;
-        break;
-    default:
-        break;
+        case VK_FORMAT_D16_UNORM:
+        case VK_FORMAT_X8_D24_UNORM_PACK32:
+        case VK_FORMAT_D32_SFLOAT:
+            is_depth = true;
+            break;
+        default:
+            break;
     }
 
     return is_depth;
 }
 
-VkRenderFramework::VkRenderFramework()
-    : inst(VK_NULL_HANDLE), m_device(NULL), m_commandPool(VK_NULL_HANDLE), m_commandBuffer(NULL), m_renderPass(VK_NULL_HANDLE),
-      m_framebuffer(VK_NULL_HANDLE), m_width(256.0), // default window width
-      m_height(256.0),                               // default window height
-      m_render_target_fmt(VK_FORMAT_R8G8B8A8_UNORM), m_depth_stencil_fmt(VK_FORMAT_UNDEFINED), m_clear_via_load_op(true),
-      m_depth_clear_color(1.0), m_stencil_clear_color(0), m_depthStencil(NULL), m_CreateDebugReportCallback(VK_NULL_HANDLE),
-      m_DestroyDebugReportCallback(VK_NULL_HANDLE), m_globalMsgCallback(VK_NULL_HANDLE), m_devMsgCallback(VK_NULL_HANDLE) {
+VkFormat find_depth_stencil_format(VkDeviceObj *device) {
+    VkFormat ds_formats[] = {VK_FORMAT_D16_UNORM_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT, VK_FORMAT_D32_SFLOAT_S8_UINT};
+    for (uint32_t i = 0; i < sizeof(ds_formats); i++) {
+        VkFormatProperties format_props = device->format_properties(ds_formats[i]);
+        if (format_props.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) {
+            return ds_formats[i];
+        }
+    }
+    return (VkFormat)0;
+}
 
+VkRenderFramework::VkRenderFramework()
+    : inst(VK_NULL_HANDLE),
+      m_device(NULL),
+      m_commandPool(VK_NULL_HANDLE),
+      m_commandBuffer(NULL),
+      m_renderPass(VK_NULL_HANDLE),
+      m_framebuffer(VK_NULL_HANDLE),
+      m_width(256.0),   // default window width
+      m_height(256.0),  // default window height
+      m_render_target_fmt(VK_FORMAT_R8G8B8A8_UNORM),
+      m_depth_stencil_fmt(VK_FORMAT_UNDEFINED),
+      m_clear_via_load_op(true),
+      m_depth_clear_color(1.0),
+      m_stencil_clear_color(0),
+      m_depthStencil(NULL),
+      m_CreateDebugReportCallback(VK_NULL_HANDLE),
+      m_DestroyDebugReportCallback(VK_NULL_HANDLE),
+      m_globalMsgCallback(VK_NULL_HANDLE),
+      m_devMsgCallback(VK_NULL_HANDLE) {
     memset(&m_renderPassBeginInfo, 0, sizeof(m_renderPassBeginInfo));
     m_renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
 
@@ -162,17 +184,12 @@ void VkRenderFramework::InitFramework(std::vector<const char *> instance_layer_n
 
 void VkRenderFramework::ShutdownFramework() {
     delete m_commandBuffer;
-    if (m_commandPool)
-        vkDestroyCommandPool(device(), m_commandPool, NULL);
-    if (m_framebuffer)
-        vkDestroyFramebuffer(device(), m_framebuffer, NULL);
-    if (m_renderPass)
-        vkDestroyRenderPass(device(), m_renderPass, NULL);
+    if (m_commandPool) vkDestroyCommandPool(device(), m_commandPool, NULL);
+    if (m_framebuffer) vkDestroyFramebuffer(device(), m_framebuffer, NULL);
+    if (m_renderPass) vkDestroyRenderPass(device(), m_renderPass, NULL);
 
-    if (m_globalMsgCallback)
-        m_DestroyDebugReportCallback(this->inst, m_globalMsgCallback, NULL);
-    if (m_devMsgCallback)
-        m_DestroyDebugReportCallback(this->inst, m_devMsgCallback, NULL);
+    if (m_globalMsgCallback) m_DestroyDebugReportCallback(this->inst, m_globalMsgCallback, NULL);
+    if (m_devMsgCallback) m_DestroyDebugReportCallback(this->inst, m_devMsgCallback, NULL);
 
     while (!m_renderTargets.empty()) {
         vkDestroyImageView(device(), m_renderTargets.back()->targetView(m_render_target_fmt), NULL);
@@ -185,11 +202,20 @@ void VkRenderFramework::ShutdownFramework() {
 
     // reset the driver
     delete m_device;
-    if (this->inst)
-        vkDestroyInstance(this->inst, NULL);
+    if (this->inst) vkDestroyInstance(this->inst, NULL);
 }
 
-void VkRenderFramework::InitState(VkPhysicalDeviceFeatures *features) {
+void VkRenderFramework::GetPhysicalDeviceFeatures(VkPhysicalDeviceFeatures *features) {
+    if (NULL == m_device) {
+        VkDeviceObj *temp_device = new VkDeviceObj(0, objs[0], device_extension_names);
+        *features = temp_device->phy().features();
+        delete (temp_device);
+    } else {
+        *features = m_device->phy().features();
+    }
+}
+
+void VkRenderFramework::InitState(VkPhysicalDeviceFeatures *features, const VkCommandPoolCreateFlags flags) {
     VkResult U_ASSERT_ONLY err;
 
     m_device = new VkDeviceObj(0, objs[0], device_extension_names, features);
@@ -220,7 +246,7 @@ void VkRenderFramework::InitState(VkPhysicalDeviceFeatures *features) {
     VkCommandPoolCreateInfo cmd_pool_info;
     cmd_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO, cmd_pool_info.pNext = NULL,
     cmd_pool_info.queueFamilyIndex = m_device->graphics_queue_node_index_;
-    cmd_pool_info.flags = 0;
+    cmd_pool_info.flags = flags;
     err = vkCreateCommandPool(device(), &cmd_pool_info, NULL, &m_commandPool);
     assert(!err);
 
@@ -259,9 +285,9 @@ void VkRenderFramework::InitRenderTarget(uint32_t targets, VkImageView *dsBindin
     std::vector<VkAttachmentDescription> attachments;
     std::vector<VkAttachmentReference> color_references;
     std::vector<VkImageView> bindings;
-    attachments.reserve(targets + 1); // +1 for dsBinding
+    attachments.reserve(targets + 1);  // +1 for dsBinding
     color_references.reserve(targets);
-    bindings.reserve(targets + 1); // +1 for dsBinding
+    bindings.reserve(targets + 1);  // +1 for dsBinding
 
     VkAttachmentDescription att = {};
     att.format = m_render_target_fmt;
@@ -467,7 +493,6 @@ VkPipelineLayout VkDescriptorSetObj::GetPipelineLayout() const { return m_pipeli
 VkDescriptorSet VkDescriptorSetObj::GetDescriptorSetHandle() const { return m_set->handle(); }
 
 void VkDescriptorSetObj::CreateVKDescriptorSet(VkCommandBufferObj *commandBuffer) {
-
     if (m_type_counts.size()) {
         // create VkDescriptorPool
         VkDescriptorPoolSize poolSize;
@@ -598,53 +623,52 @@ void VkImageObj::SetLayout(VkCommandBufferObj *cmd_buf, VkImageAspectFlags aspec
     }
 
     switch (image_layout) {
-    case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
-        if (m_descriptorImageInfo.imageLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
-            src_mask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        else
-            src_mask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        dst_mask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT;
-        break;
+        case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+            if (m_descriptorImageInfo.imageLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+                src_mask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+            else
+                src_mask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            dst_mask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT;
+            break;
 
-    case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
-        if (m_descriptorImageInfo.imageLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
-            src_mask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        else if (m_descriptorImageInfo.imageLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
-            src_mask = VK_ACCESS_INPUT_ATTACHMENT_READ_BIT;
-        else
-            src_mask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        dst_mask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        break;
+        case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+            if (m_descriptorImageInfo.imageLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+                src_mask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+            else if (m_descriptorImageInfo.imageLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+                src_mask = VK_ACCESS_INPUT_ATTACHMENT_READ_BIT;
+            else
+                src_mask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            dst_mask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            break;
 
-    case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-        if (m_descriptorImageInfo.imageLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
-            src_mask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        else
-            src_mask = VK_ACCESS_INPUT_ATTACHMENT_READ_BIT;
-        dst_mask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_MEMORY_READ_BIT;
-        break;
+        case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+            if (m_descriptorImageInfo.imageLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+                src_mask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            else
+                src_mask = VK_ACCESS_INPUT_ATTACHMENT_READ_BIT;
+            dst_mask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_MEMORY_READ_BIT;
+            break;
 
-    case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
-        if (m_descriptorImageInfo.imageLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
-            src_mask = VK_ACCESS_TRANSFER_READ_BIT;
-        else
-            src_mask = 0;
-        dst_mask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        break;
+        case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+            if (m_descriptorImageInfo.imageLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+                src_mask = VK_ACCESS_TRANSFER_READ_BIT;
+            else
+                src_mask = 0;
+            dst_mask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+            break;
 
-    case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
-        dst_mask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        src_mask = all_cache_outputs;
-        break;
+        case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+            dst_mask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            src_mask = all_cache_outputs;
+            break;
 
-    default:
-        src_mask = all_cache_outputs;
-        dst_mask = all_cache_inputs;
-        break;
+        default:
+            src_mask = all_cache_outputs;
+            dst_mask = all_cache_inputs;
+            break;
     }
 
-    if (m_descriptorImageInfo.imageLayout == VK_IMAGE_LAYOUT_UNDEFINED)
-        src_mask = 0;
+    if (m_descriptorImageInfo.imageLayout == VK_IMAGE_LAYOUT_UNDEFINED) src_mask = 0;
 
     ImageMemoryBarrier(cmd_buf, aspect, src_mask, dst_mask, image_layout);
     m_descriptorImageInfo.imageLayout = image_layout;
@@ -678,15 +702,13 @@ void VkImageObj::SetLayout(VkImageAspectFlags aspect, VkImageLayout image_layout
 }
 
 bool VkImageObj::IsCompatible(VkFlags usage, VkFlags features) {
-    if ((usage & VK_IMAGE_USAGE_SAMPLED_BIT) && !(features & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT))
-        return false;
+    if ((usage & VK_IMAGE_USAGE_SAMPLED_BIT) && !(features & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT)) return false;
 
     return true;
 }
 
 void VkImageObj::init_no_layout(uint32_t w, uint32_t h, VkFormat fmt, VkFlags usage, VkImageTiling requested_tiling,
                                 VkMemoryPropertyFlags reqs) {
-
     VkFormatProperties image_fmt;
     VkImageTiling tiling = VK_IMAGE_TILING_OPTIMAL;
 
@@ -725,7 +747,6 @@ void VkImageObj::init_no_layout(uint32_t w, uint32_t h, VkFormat fmt, VkFlags us
 
 void VkImageObj::init(uint32_t w, uint32_t h, VkFormat fmt, VkFlags usage, VkImageTiling requested_tiling,
                       VkMemoryPropertyFlags reqs) {
-
     init_no_layout(w, h, fmt, usage, requested_tiling, reqs);
 
     VkImageLayout newLayout;
@@ -743,10 +764,45 @@ void VkImageObj::init(uint32_t w, uint32_t h, VkFormat fmt, VkFlags usage, VkIma
         image_aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
     } else if (vk_format_is_stencil_only(fmt)) {
         image_aspect = VK_IMAGE_ASPECT_STENCIL_BIT;
-    } else { // color
+    } else {  // color
         image_aspect = VK_IMAGE_ASPECT_COLOR_BIT;
     }
     SetLayout(image_aspect, newLayout);
+}
+
+void VkImageObj::init(const VkImageCreateInfo *create_info) {
+    VkFormatProperties image_fmt;
+    vkGetPhysicalDeviceFormatProperties(m_device->phy().handle(), create_info->format, &image_fmt);
+
+    switch (create_info->tiling) {
+        case VK_IMAGE_TILING_OPTIMAL:
+            if (!IsCompatible(create_info->usage, image_fmt.optimalTilingFeatures)) {
+                ASSERT_TRUE(false) << "VkImageObj::init() error: unsupported tiling configuration";
+            }
+            break;
+        case VK_IMAGE_TILING_LINEAR:
+            if (!IsCompatible(create_info->usage, image_fmt.optimalTilingFeatures)) {
+                ASSERT_TRUE(false) << "VkImageObj::init() error: unsupported tiling configuration";
+            }
+            break;
+        default:
+            break;
+    }
+    layout(create_info->initialLayout);
+
+    vk_testing::Image::init(*m_device, *create_info, 0);
+
+    VkImageAspectFlags image_aspect = 0;
+    if (vk_format_is_depth_and_stencil(create_info->format)) {
+        image_aspect = VK_IMAGE_ASPECT_STENCIL_BIT | VK_IMAGE_ASPECT_DEPTH_BIT;
+    } else if (vk_format_is_depth_only(create_info->format)) {
+        image_aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
+    } else if (vk_format_is_stencil_only(create_info->format)) {
+        image_aspect = VK_IMAGE_ASPECT_STENCIL_BIT;
+    } else {  // color
+        image_aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+    }
+    SetLayout(image_aspect, VK_IMAGE_LAYOUT_GENERAL);
 }
 
 VkResult VkImageObj::CopyImage(VkImageObj &src_image) {
@@ -816,8 +872,7 @@ VkTextureObj::VkTextureObj(VkDeviceObj *device, uint32_t *colors) : VkImageObj(d
                       reqs);
     VkSubresourceLayout layout = stagingImage.subresource_layout(subresource(VK_IMAGE_ASPECT_COLOR_BIT, 0, 0));
 
-    if (colors == NULL)
-        colors = tex_colors;
+    if (colors == NULL) colors = tex_colors;
 
     memset(&m_imageInfo, 0, sizeof(m_imageInfo));
 
@@ -850,8 +905,7 @@ VkTextureObj::VkTextureObj(VkDeviceObj *device, uint32_t *colors) : VkImageObj(d
 
     for (y = 0; y < extent().height; y++) {
         uint32_t *row = (uint32_t *)((char *)data + layout.rowPitch * y);
-        for (x = 0; x < extent().width; x++)
-            row[x] = colors[(x & 1) ^ (y & 1)];
+        for (x = 0; x < extent().width; x++) row[x] = colors[(x & 1) ^ (y & 1)];
     }
     stagingImage.UnmapMemory();
     stagingImage.SetLayout(VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
@@ -1030,16 +1084,16 @@ void VkIndexBufferObj::CreateAndInitBuffer(int numIndexes, VkIndexType indexType
     m_numVertices = numIndexes;
     m_indexType = indexType;
     switch (indexType) {
-    case VK_INDEX_TYPE_UINT16:
-        m_stride = 2;
-        break;
-    case VK_INDEX_TYPE_UINT32:
-        m_stride = 4;
-        break;
-    default:
-        assert(!"unknown index type");
-        m_stride = 2;
-        break;
+        case VK_INDEX_TYPE_UINT16:
+            m_stride = 2;
+            break;
+        case VK_INDEX_TYPE_UINT32:
+            m_stride = 4;
+            break;
+        default:
+            assert(!"unknown index type");
+            m_stride = 2;
+            break;
     }
 
     const size_t allocationSize = numIndexes * m_stride;
@@ -1088,7 +1142,6 @@ VkShaderObj::VkShaderObj(VkDeviceObj *device, const char *shader_code, VkShaderS
     moduleCreateInfo.pNext = NULL;
 
     if (framework->m_use_glsl) {
-
         shader_len = strlen(shader_code);
         moduleCreateInfo.codeSize = 3 * sizeof(uint32_t) + shader_len + 1;
         moduleCreateInfo.pCode = (uint32_t *)malloc(moduleCreateInfo.codeSize);
@@ -1101,7 +1154,6 @@ VkShaderObj::VkShaderObj(VkDeviceObj *device, const char *shader_code, VkShaderS
         memcpy(((uint32_t *)moduleCreateInfo.pCode + 3), shader_code, shader_len + 1);
 
     } else {
-
         // Use Reference GLSL to SPV compiler
         framework->GLSLtoSPV(stage, shader_code, spv);
         moduleCreateInfo.pCode = spv.data();
@@ -1134,7 +1186,7 @@ VkPipelineObj::VkPipelineObj(VkDeviceObj *device) {
     m_rs_state.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
     m_rs_state.pNext = VK_NULL_HANDLE;
     m_rs_state.flags = 0;
-    m_rs_state.depthClampEnable = VK_TRUE;
+    m_rs_state.depthClampEnable = VK_FALSE;
     m_rs_state.rasterizerDiscardEnable = VK_FALSE;
     m_rs_state.polygonMode = VK_POLYGON_MODE_FILL;
     m_rs_state.cullMode = VK_CULL_MODE_BACK_BIT;
@@ -1173,6 +1225,8 @@ VkPipelineObj::VkPipelineObj(VkDeviceObj *device) {
     m_vp_state.pScissors = NULL;
 
     m_ds_state = nullptr;
+
+    memset(&m_pd_state, 0, sizeof(m_pd_state));
 };
 
 void VkPipelineObj::AddShader(VkShaderObj *shader) { m_shaderObjs.push_back(shader); }
@@ -1194,9 +1248,7 @@ void VkPipelineObj::AddColorAttachment(uint32_t binding, const VkPipelineColorBl
     m_colorAttachments[binding] = *att;
 }
 
-void VkPipelineObj::SetDepthStencil(const VkPipelineDepthStencilStateCreateInfo *ds_state) {
-    m_ds_state = ds_state;
-}
+void VkPipelineObj::SetDepthStencil(const VkPipelineDepthStencilStateCreateInfo *ds_state) { m_ds_state = ds_state; }
 
 void VkPipelineObj::SetViewport(const vector<VkViewport> viewports) {
     m_viewports = viewports;
@@ -1219,8 +1271,7 @@ void VkPipelineObj::SetScissor(const vector<VkRect2D> scissors) {
 void VkPipelineObj::MakeDynamic(VkDynamicState state) {
     /* Only add a state once */
     for (auto it = m_dynamic_state_enables.begin(); it != m_dynamic_state_enables.end(); it++) {
-        if ((*it) == state)
-            return;
+        if ((*it) == state) return;
     }
     m_dynamic_state_enables.push_back(state);
 }
@@ -1233,27 +1284,23 @@ void VkPipelineObj::SetRasterization(const VkPipelineRasterizationStateCreateInf
 
 void VkPipelineObj::SetTessellation(const VkPipelineTessellationStateCreateInfo *te_state) { m_te_state = *te_state; }
 
-VkResult VkPipelineObj::CreateVKPipeline(VkPipelineLayout layout, VkRenderPass render_pass) {
-    VkGraphicsPipelineCreateInfo info = {};
-    VkPipelineDynamicStateCreateInfo dsci = {};
-
-    info.stageCount = m_shaderObjs.size();
-    info.pStages = new VkPipelineShaderStageCreateInfo[info.stageCount];
+void VkPipelineObj::InitGraphicsPipelineCreateInfo(VkGraphicsPipelineCreateInfo *gp_ci) {
+    gp_ci->stageCount = m_shaderObjs.size();
+    gp_ci->pStages = new VkPipelineShaderStageCreateInfo[gp_ci->stageCount];
 
     for (size_t i = 0; i < m_shaderObjs.size(); i++) {
-        ((VkPipelineShaderStageCreateInfo *)info.pStages)[i] = m_shaderObjs[i]->GetStageCreateInfo();
+        ((VkPipelineShaderStageCreateInfo *)gp_ci->pStages)[i] = m_shaderObjs[i]->GetStageCreateInfo();
     }
 
     m_vi_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    info.pVertexInputState = &m_vi_state;
+    gp_ci->pVertexInputState = &m_vi_state;
 
     m_ia_state.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    info.pInputAssemblyState = &m_ia_state;
+    gp_ci->pInputAssemblyState = &m_ia_state;
 
-    info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    info.pNext = NULL;
-    info.flags = 0;
-    info.layout = layout;
+    gp_ci->sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    gp_ci->pNext = NULL;
+    gp_ci->flags = 0;
 
     m_cb_state.attachmentCount = m_colorAttachments.size();
     m_cb_state.pAttachments = m_colorAttachments.data();
@@ -1272,29 +1319,43 @@ VkResult VkPipelineObj::CreateVKPipeline(VkPipelineLayout layout, VkRenderPass r
         MakeDynamic(VK_DYNAMIC_STATE_SCISSOR);
     }
 
+    memset(&m_pd_state, 0, sizeof(m_pd_state));
     if (m_dynamic_state_enables.size() > 0) {
-        dsci.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-        dsci.dynamicStateCount = m_dynamic_state_enables.size();
-        dsci.pDynamicStates = m_dynamic_state_enables.data();
-        info.pDynamicState = &dsci;
+        m_pd_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        m_pd_state.dynamicStateCount = m_dynamic_state_enables.size();
+        m_pd_state.pDynamicStates = m_dynamic_state_enables.data();
+        gp_ci->pDynamicState = &m_pd_state;
     }
 
-    info.renderPass = render_pass;
-    info.subpass = 0;
-    info.pViewportState = &m_vp_state;
-    info.pRasterizationState = &m_rs_state;
-    info.pMultisampleState = &m_ms_state;
-    info.pDepthStencilState = m_ds_state;
-    info.pColorBlendState = &m_cb_state;
+    gp_ci->subpass = 0;
+    gp_ci->pViewportState = &m_vp_state;
+    gp_ci->pRasterizationState = &m_rs_state;
+    gp_ci->pMultisampleState = &m_ms_state;
+    gp_ci->pDepthStencilState = m_ds_state;
+    gp_ci->pColorBlendState = &m_cb_state;
 
     if (m_ia_state.topology == VK_PRIMITIVE_TOPOLOGY_PATCH_LIST) {
         m_te_state.sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO;
-        info.pTessellationState = &m_te_state;
+        gp_ci->pTessellationState = &m_te_state;
     } else {
-        info.pTessellationState = nullptr;
+        gp_ci->pTessellationState = nullptr;
+    }
+}
+
+VkResult VkPipelineObj::CreateVKPipeline(VkPipelineLayout layout, VkRenderPass render_pass,
+                                         VkGraphicsPipelineCreateInfo *gp_ci) {
+    VkGraphicsPipelineCreateInfo info = {};
+
+    // if not given a CreateInfo, create and initialize a local one.
+    if (gp_ci == nullptr) {
+        gp_ci = &info;
+        InitGraphicsPipelineCreateInfo(gp_ci);
     }
 
-    return init_try(*m_device, info);
+    gp_ci->layout = layout;
+    gp_ci->renderPass = render_pass;
+
+    return init_try(*m_device, *gp_ci);
 }
 
 VkCommandBufferObj::VkCommandBufferObj(VkDeviceObj *device, VkCommandPool pool) {
@@ -1565,7 +1626,6 @@ VkDepthStencilObj::VkDepthStencilObj(VkDeviceObj *device) : VkImageObj(device) {
 VkImageView *VkDepthStencilObj::BindInfo() { return &m_attachmentBindInfo; }
 
 void VkDepthStencilObj::Init(VkDeviceObj *device, int32_t width, int32_t height, VkFormat format, VkImageUsageFlags usage) {
-
     VkImageViewCreateInfo view_info = {};
 
     m_device = device;
@@ -1575,16 +1635,18 @@ void VkDepthStencilObj::Init(VkDeviceObj *device, int32_t width, int32_t height,
     /* create image */
     init(width, height, m_depth_stencil_fmt, usage, VK_IMAGE_TILING_OPTIMAL);
 
-    VkImageAspectFlags aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
-    if (vk_format_is_depth_and_stencil(format))
-        aspect |= VK_IMAGE_ASPECT_STENCIL_BIT;
+    VkImageAspectFlags aspect = VK_IMAGE_ASPECT_STENCIL_BIT | VK_IMAGE_ASPECT_DEPTH_BIT;
+    if (vk_format_is_depth_only(format))
+        aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
+    else if (vk_format_is_stencil_only(format))
+        aspect = VK_IMAGE_ASPECT_STENCIL_BIT;
 
     SetLayout(aspect, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
     view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     view_info.pNext = NULL;
     view_info.image = VK_NULL_HANDLE;
-    view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    view_info.subresourceRange.aspectMask = aspect;
     view_info.subresourceRange.baseMipLevel = 0;
     view_info.subresourceRange.levelCount = 1;
     view_info.subresourceRange.baseArrayLayer = 0;

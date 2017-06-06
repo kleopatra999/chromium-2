@@ -65,6 +65,7 @@ class Specification:
         self.val_error_dict = {} # string for enum is key that references 'error_msg' and 'api'
         self.error_db_dict = {} # dict of previous error values read in from database file
         self.delimiter = '~^~' # delimiter for db file
+        self.implicit_count = 0
         self.copyright = """/* THIS FILE IS GENERATED.  DO NOT EDIT. */
 
 /*
@@ -120,36 +121,43 @@ class Specification:
         prev_link = '' # Last seen link id within the spec
         api_function = '' # API call that a check appears under
         error_strings = set() # Flag any exact duplicate error strings and skip them
+        implicit_count = 0
         for tag in self.root.iter(): # iterate down tree
             # Grab most recent section heading and link
-            if tag.tag in ['{http://www.w3.org/1999/xhtml}h2', '{http://www.w3.org/1999/xhtml}h3']:
-                if tag.get('class') != 'title':
-                    continue
-                #print "Found heading %s" % (tag.tag)
+            if tag.tag in ['h2', 'h3', 'h4']:
+                #if tag.get('class') != 'title':
+                #    continue
+                print "Found heading %s" % (tag.tag)
                 prev_heading = "".join(tag.itertext())
                 # Insert a space between heading number & title
                 sh_list = prev_heading.rsplit('.', 1)
                 prev_heading = '. '.join(sh_list)
-                prev_link = tag[0].get('id')
-                #print "Set prev_heading %s to have link of %s" % (prev_heading.encode("ascii", "ignore"), prev_link.encode("ascii", "ignore"))
-            elif tag.tag == '{http://www.w3.org/1999/xhtml}a': # grab any intermediate links
+                prev_link = tag.get('id')
+                print "Set prev_heading %s to have link of %s" % (prev_heading.encode("ascii", "ignore"), prev_link.encode("ascii", "ignore"))
+            elif tag.tag == 'a': # grab any intermediate links
                 if tag.get('id') != None:
                     prev_link = tag.get('id')
                     #print "Updated prev link to %s" % (prev_link)
-            elif tag.tag == '{http://www.w3.org/1999/xhtml}pre' and tag.get('class') == 'programlisting':
+            elif tag.tag == 'div' and tag.get('class') == 'listingblock':
                 # Check and see if this is API function
                 code_text = "".join(tag.itertext()).replace('\n', '')
                 code_text_list = code_text.split()
                 if len(code_text_list) > 1 and code_text_list[1].startswith('vk'):
                     api_function = code_text_list[1].strip('(')
-                    #print "Found API function: %s" % (api_function)
-            elif tag.tag == '{http://www.w3.org/1999/xhtml}div' and tag.get('class') == 'sidebar':
+                    print "Found API function: %s" % (api_function)
+            #elif tag.tag == '{http://www.w3.org/1999/xhtml}div' and tag.get('class') == 'sidebar':
+            elif tag.tag == 'div' and tag.get('class') == 'content':
                 # parse down sidebar to check for valid usage cases
                 valid_usage = False
+                implicit = False
                 for elem in tag.iter():
-                    if elem.tag == '{http://www.w3.org/1999/xhtml}strong' and None != elem.text and 'Valid Usage' in elem.text:
+                    if elem.tag == 'div' and None != elem.text and 'Valid Usage' in elem.text:
                         valid_usage = True
-                    elif valid_usage and elem.tag == '{http://www.w3.org/1999/xhtml}li': # grab actual valid usage requirements
+                        if '(Implicit)' in elem.text:
+                            implicit = True
+                        else:
+                            implicit = False
+                    elif valid_usage and elem.tag == 'li': # grab actual valid usage requirements
                         error_msg_str = "%s '%s' which states '%s' (%s#%s)" % (error_msg_prefix, prev_heading, "".join(elem.itertext()).replace('\n', ''), spec_url, prev_link)
                         # Some txt has multiple spaces so split on whitespace and join w/ single space
                         error_msg_str = " ".join(error_msg_str.split())
@@ -162,6 +170,10 @@ class Specification:
                             self.val_error_dict[enum_str] = {}
                             self.val_error_dict[enum_str]['error_msg'] = error_msg_str.encode("ascii", "ignore").replace("\\", "/")
                             self.val_error_dict[enum_str]['api'] = api_function
+                            self.val_error_dict[enum_str]['implicit'] = False
+                            if implicit:
+                                self.val_error_dict[enum_str]['implicit'] = True
+                                self.implicit_count = self.implicit_count + 1
                             unique_enum_id = unique_enum_id + 1
         #print "Validation Error Dict has a total of %d unique errors and contents are:\n%s" % (unique_enum_id, self.val_error_dict)
     def genHeader(self, header_file):
@@ -170,18 +182,22 @@ class Specification:
         file_contents = []
         file_contents.append(self.copyright)
         file_contents.append('\n#pragma once')
-        file_contents.append('#include <unordered_map>')
+        file_contents.append('\n// Disable auto-formatting for generated file')
+        file_contents.append('// clang-format off')
+        file_contents.append('\n#include <unordered_map>')
         file_contents.append('\n// enum values for unique validation error codes')
         file_contents.append('//  Corresponding validation error message for each enum is given in the mapping table below')
         file_contents.append('//  When a given error occurs, these enum values should be passed to the as the messageCode')
         file_contents.append('//  parameter to the PFN_vkDebugReportCallbackEXT function')
         enum_decl = ['enum UNIQUE_VALIDATION_ERROR_CODE {\n    VALIDATION_ERROR_UNDEFINED = -1,']
         error_string_map = ['static std::unordered_map<int, char const *const> validation_error_map{']
+        enum_value = 0
         for enum in sorted(self.val_error_dict):
             #print "Header enum is %s" % (enum)
-            enum_decl.append('    %s = %d,' % (enum, int(enum.split('_')[-1])))
+            enum_value = int(enum.split('_')[-1])
+            enum_decl.append('    %s = %d,' % (enum, enum_value))
             error_string_map.append('    {%s, "%s"},' % (enum, self.val_error_dict[enum]['error_msg']))
-        enum_decl.append('    %sMAX_ENUM = %d,' % (validation_error_enum_name, int(enum.split('_')[-1]) + 1))
+        enum_decl.append('    %sMAX_ENUM = %d,' % (validation_error_enum_name, enum_value + 1))
         enum_decl.append('};')
         error_string_map.append('};\n')
         file_contents.extend(enum_decl)
@@ -212,6 +228,7 @@ class Specification:
                 repeat_string = repeat_string + 1
                 print "String '%s' repeated %d times" % (es, repeat_string)
         print "Found %d repeat strings" % (repeat_string)
+        print "Found %d implicit checks" % (self.implicit_count)
     def genDB(self, db_file):
         """Generate a database of check_enum, check_coded?, testname, error_string"""
         db_lines = []
@@ -221,21 +238,27 @@ class Specification:
         db_lines.append("# The format of the lines is:")
         db_lines.append("# <error_enum>%s<check_implemented>%s<testname>%s<api>%s<errormsg>%s<note>" % (self.delimiter, self.delimiter, self.delimiter, self.delimiter, self.delimiter))
         db_lines.append("# error_enum: Unique error enum for this check of format %s<uniqueid>" % validation_error_enum_name)
-        db_lines.append("# check_implemented: 'Y' if check has been implemented in layers, 'U' for unknown, or 'N' for not implemented")
+        db_lines.append("# check_implemented: 'Y' if check has been implemented in layers, or 'N' for not implemented")
         db_lines.append("# testname: Name of validation test for this check, 'Unknown' for unknown, or 'None' if not implmented")
         db_lines.append("# api: Vulkan API function that this check is related to")
         db_lines.append("# errormsg: The unique error message for this check that includes spec language and link")
         db_lines.append("# note: Free txt field with any custom notes related to the check in question")
         for enum in sorted(self.val_error_dict):
-            # Default to unknown if check or test are implemented, then update below if appropriate
-            implemented = 'U'
+            # Default check/test implementation status to N/Unknown, then update below if appropriate
+            implemented = 'N'
             testname = 'Unknown'
             note = ''
+            implicit = self.val_error_dict[enum]['implicit']
             # If we have an existing db entry for this enum, use its implemented/testname values
             if enum in self.error_db_dict:
                 implemented = self.error_db_dict[enum]['check_implemented']
                 testname = self.error_db_dict[enum]['testname']
                 note = self.error_db_dict[enum]['note']
+            if implicit and 'implicit' not in note: # add implicit note
+                if '' != note:
+                    note = "implicit, %s" % (note)
+                else:
+                    note = "implicit"
             #print "delimiter: %s, id: %s, str: %s" % (self.delimiter, enum, self.val_error_dict[enum])
             # No existing entry so default to N for implemented and None for testname
             db_lines.append("%s%s%s%s%s%s%s%s%s%s%s" % (enum, self.delimiter, implemented, self.delimiter, testname, self.delimiter, self.val_error_dict[enum]['api'], self.delimiter, self.val_error_dict[enum]['error_msg'], self.delimiter, note))
@@ -305,6 +328,7 @@ class Specification:
             update_enum = enum
             update_msg = self.val_error_dict[enum]['error_msg']
             update_api = self.val_error_dict[enum]['api']
+            implicit = self.val_error_dict[enum]['implicit']
             # Any user-forced remap takes precendence
             if enum_list[-1] in remap_dict:
                 enum_list[-1] = remap_dict[enum_list[-1]]
@@ -363,6 +387,7 @@ class Specification:
             updated_val_error_dict[update_enum] = {}
             updated_val_error_dict[update_enum]['error_msg'] = update_msg
             updated_val_error_dict[update_enum]['api'] = update_api
+            updated_val_error_dict[update_enum]['implicit'] = implicit
         # Assign parsed dict to be the udpated dict based on db compare
         print "In compareDB parsed %d entries" % (ids_parsed)
         return updated_val_error_dict

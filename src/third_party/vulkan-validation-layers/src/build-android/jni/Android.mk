@@ -24,6 +24,7 @@ LOCAL_SRC_FILES += $(LAYER_DIR)/common/vk_layer_config.cpp
 LOCAL_SRC_FILES += $(LAYER_DIR)/common/vk_layer_extension_utils.cpp
 LOCAL_SRC_FILES += $(LAYER_DIR)/common/vk_layer_utils.cpp
 LOCAL_C_INCLUDES += $(SRC_DIR)/include \
+                    $(LAYER_DIR)/include \
                     $(SRC_DIR)/layers \
                     $(SRC_DIR)/loader
 LOCAL_CPPFLAGS += -DVK_USE_PLATFORM_ANDROID_KHR -fvisibility=hidden
@@ -33,6 +34,7 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := VkLayer_core_validation
 LOCAL_SRC_FILES += $(LAYER_DIR)/layer-src/core_validation/core_validation.cpp
 LOCAL_SRC_FILES += $(LAYER_DIR)/layer-src/core_validation/descriptor_sets.cpp
+LOCAL_SRC_FILES += $(LAYER_DIR)/layer-src/core_validation/buffer_validation.cpp
 LOCAL_SRC_FILES += $(LAYER_DIR)/common/vk_layer_table.cpp
 LOCAL_C_INCLUDES += $(SRC_DIR)/include \
                     $(SRC_DIR)/layers \
@@ -41,21 +43,6 @@ LOCAL_C_INCLUDES += $(SRC_DIR)/include \
                     $(ANDROID_DIR)/external/glslang \
                     $(ANDROID_DIR)/external/spirv-tools/include
 LOCAL_STATIC_LIBRARIES += layer_utils SPIRV-Tools-prebuilt
-LOCAL_CPPFLAGS += -DVK_USE_PLATFORM_ANDROID_KHR -fvisibility=hidden
-LOCAL_LDLIBS    := -llog
-LOCAL_LDFLAGS   += -Wl,-Bsymbolic
-LOCAL_LDFLAGS   += -Wl,--exclude-libs,ALL
-include $(BUILD_SHARED_LIBRARY)
-
-include $(CLEAR_VARS)
-LOCAL_MODULE := VkLayer_image
-LOCAL_SRC_FILES += $(LAYER_DIR)/layer-src/image/image.cpp
-LOCAL_SRC_FILES += $(LAYER_DIR)/common/vk_layer_table.cpp
-LOCAL_C_INCLUDES += $(SRC_DIR)/include \
-                    $(SRC_DIR)/layers \
-                    $(LAYER_DIR)/include \
-                    $(SRC_DIR)/loader
-LOCAL_STATIC_LIBRARIES += layer_utils
 LOCAL_CPPFLAGS += -DVK_USE_PLATFORM_ANDROID_KHR -fvisibility=hidden
 LOCAL_LDLIBS    := -llog
 LOCAL_LDFLAGS   += -Wl,-Bsymbolic
@@ -191,6 +178,7 @@ LOCAL_SRC_FILES += $(SRC_DIR)/tests/layer_validation_tests.cpp \
                    $(SRC_DIR)/tests/vkrenderframework.cpp \
                    $(SRC_DIR)/common/vulkan_wrapper.cpp
 LOCAL_C_INCLUDES += $(SRC_DIR)/include \
+                    $(LAYER_DIR)/include \
                     $(SRC_DIR)/layers \
                     $(SRC_DIR)/libs \
                     $(SRC_DIR)/common \
@@ -213,6 +201,7 @@ LOCAL_SRC_FILES += $(SRC_DIR)/tests/layer_validation_tests.cpp \
                    $(SRC_DIR)/tests/vkrenderframework.cpp \
                    $(SRC_DIR)/common/vulkan_wrapper.cpp
 LOCAL_C_INCLUDES += $(SRC_DIR)/include \
+                    $(LAYER_DIR)/include \
                     $(SRC_DIR)/layers \
                     $(SRC_DIR)/libs \
                     $(SRC_DIR)/common \

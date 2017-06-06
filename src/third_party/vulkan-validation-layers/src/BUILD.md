@@ -9,7 +9,7 @@ and install it.
 
 If you intend to contribute, the preferred work flow is for you to develop your contribution
 in a fork of this repo in your GitHub account and then submit a pull request.
-Please see the [CONTRIBUTING](CONTRIBUTING.md) file in this respository for more details.
+Please see the [CONTRIBUTING](CONTRIBUTING.md) file in this repository for more details.
 
 ## Git the Bits
 
@@ -28,7 +28,7 @@ It should be straightforward to use it on other Linux distros.
 
 These packages are needed to build this repository:
 ```
-sudo apt-get install git cmake build-essential bison libx11-dev libxcb1-dev libxkbcommon-dev libmirclient-dev libwayland-dev
+sudo apt-get install git cmake build-essential bison libx11-xcb-dev libxkbcommon-dev libmirclient-dev libwayland-dev libxrandr-dev
 ```
 
 Example debug build (Note that the update\_external\_sources script used below builds external tools into predefined locations. See **Loader and Validation Layer Dependencies** for more information and other options):
@@ -206,7 +206,7 @@ Windows 7+ with additional required software packages:
 
 Before building on Windows, you may want to modify the customize section in loader/loader.rc to so as to
 set the version numbers and build description for your build. Doing so will set the information displayed
-for the Properites->Details tab of the loader vulkan-1.dll file that is built.
+for the Properties->Details tab of the loader vulkan-1.dll file that is built.
 
 Build all Windows targets after installing required software and cloning the Loader and Validation Layer repo as described above by completing the following steps in a "Developer Command Prompt for VS2013" window (Note that the update\_external\_sources script used below builds external tools into predefined locations. See **Loader and Validation Layer Dependencies** for more information and other options):
 ```
